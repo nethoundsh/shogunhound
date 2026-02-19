@@ -91,7 +91,7 @@ The binary lives on the VPS. No open ports. No daemon to manage. The MCP client 
 
 1. **Ransomware recovery**
    During active recovery, quickly profile every public IP on a victim network. Check exposed services, recency, and CVEs before deep log triage.
-   - "What ports were open on `203.0.113.45` and are there any known CVEs?"
+   - "What ports were open on `8.8.8.8` and are there any known CVEs?"
 
 2. **Penetration testing recon**
    In passive recon, enumerate exposed services and banners without sending packets to target infrastructure.
@@ -103,7 +103,7 @@ The binary lives on the VPS. No open ports. No daemon to manage. The MCP client 
 
 4. **Vulnerability management**
    Rapidly assess whether critical CVEs appear on known public IPs without waiting for a full scan cycle.
-   - "Does `198.51.100.10` show signs of affected software and known CVEs?"
+   - "Does `1.1.1.1` show signs of affected software and known CVEs?"
 
 5. **Incident response triage**
    Reverse-resolve suspicious IPs, then profile their exposed services to prioritize escalation.
@@ -564,7 +564,7 @@ github.com -> 140.82.121.4
 **Ask the agent:**
 - "Run a bulk Shodan profile for these IPs: `8.8.8.8,1.1.1.1,9.9.9.9`."
 - "Bulk query this list in markdown and include CVE counts."
-- "Triage all public IPs from this incident scope: `203.0.113.10,203.0.113.11,203.0.113.12`."
+- "Triage all public IPs from this incident scope: `8.8.8.8,1.1.1.1,9.9.9.9`."
 
 **Example parameters:**
 
@@ -669,8 +669,8 @@ CVSS: 10.0
 > Create a Shodan network monitor alert for one or more IP/CIDR targets.
 
 **Ask the agent:**
-- "Create a Shodan alert named `engagement-monitor` watching `203.0.113.0/24`."
-- "Start monitoring `198.51.100.1` and `198.51.100.2` for new open services."
+- "Create a Shodan alert named `engagement-monitor` watching `8.8.8.0/24`."
+- "Start monitoring `8.8.8.8` and `1.1.1.1` for new open services."
 - "Set up a 7-day alert for the client's public IP range — it expires after 604800 seconds."
 
 **Example parameters:**
@@ -678,7 +678,7 @@ CVSS: 10.0
 ```json
 {
   "name": "engagement-monitor",
-  "targets": "203.0.113.0/24",
+  "targets": "8.8.8.0/24",
   "expires": 0
 }
 ```

@@ -1,11 +1,12 @@
 {
-    "mcpServers": {
-      "shogunhound": {
-        "type": "stdio",
-        "command": "/usr/local/bin/shogunhound",
-        "env": {
-          "SHODAN_API_KEY": "${SHODAN_API_KEY}"
-        }
+  "mcpServers": {
+    "shogunhound": {
+      "type": "stdio",
+      "command": "/usr/local/bin/shogunhound",
+      "env": {
+        "SHODAN_API_KEY": "${SHODAN_API_KEY}",
+        "SHODAN_TIER": "${SHODAN_TIER}"
       }
     }
   }
+}
