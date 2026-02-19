@@ -52,6 +52,7 @@ BANNERS
 - [Configuration](#configuration)
 - [Usage](#usage)
   - [MCP Server — Cursor over SSH](#mcp-server--cursor-over-ssh)
+  - [MCP Server — Claude Code](#mcp-server--claude-code)
 - [Tool Reference](#tool-reference)
 - [Output Formats](#output-formats)
 - [IP Validation](#ip-validation)
@@ -204,6 +205,52 @@ This is the primary use case. Cursor's Remote SSH extension runs editor processe
 | `SHODAN_API_KEY not set` error | Env var not exported before Cursor connected | Add `export SHODAN_API_KEY=...` to `~/.bashrc` and reconnect |
 | Tool visible but returns no data | API key invalid | Verify your key at https://account.shodan.io and restart the MCP server process |
 | Server shown as disconnected | shogunhound crashed on startup | Check Cursor MCP logs; run the binary manually to see the error |
+
+---
+
+### MCP Server — Claude Code
+
+Claude Code natively supports MCP stdio servers. `shogunhound` works without any modification.
+
+Add globally (available in all Claude Code sessions on this machine):
+
+```bash
+claude mcp add --transport stdio \
+  --env SHODAN_API_KEY="${SHODAN_API_KEY}" \
+  shogunhound -- /usr/local/bin/shogunhound
+```
+
+Or add to a project (checked into git, shared with the team) by creating `.mcp.json` in the repo root:
+
+```json
+{
+  "mcpServers": {
+    "shogunhound": {
+      "type": "stdio",
+      "command": "/usr/local/bin/shogunhound",
+      "env": {
+        "SHODAN_API_KEY": "${SHODAN_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+Verify it is connected:
+
+```bash
+claude mcp list
+# shogunhound   stdio   /usr/local/bin/shogunhound
+```
+
+Or inside a Claude Code session, run `/mcp` and confirm `shogunhound` appears as connected.
+
+Using the investigation prompts:
+
+```text
+/mcp__shogunhound__investigate_ip ip=8.8.8.8
+/mcp__shogunhound__recon query="org:\"Acme Corp\""
+```
 
 ---
 

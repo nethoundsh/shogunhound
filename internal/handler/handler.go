@@ -86,7 +86,7 @@ func (h *ToolHandler) HandleShodanIPQuery(
 		h.logQuery(ip, format, true, 0, true, "")
 		output := formatter.Format(result, format)
 		if format != "json" {
-			cacheNote := fmt.Sprintf("[cached - fetched %s - pass clear_cache=true to refresh]", queriedAt.Format("2006-01-02"))
+			cacheNote := fmt.Sprintf("[cached · fetched %s — pass clear_cache=true to refresh]", queriedAt.Format("2006-01-02"))
 			output = cacheNote + "\n\n" + output
 		}
 		return mcp.NewToolResultText(output), nil

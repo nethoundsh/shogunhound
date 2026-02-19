@@ -71,7 +71,7 @@ func Format(result *shodan.ShodanHostResult, format string) string {
 				fmt.Fprintf(&b, " — %s", productVersion)
 			}
 			if len(service.CPE) > 0 {
-				fmt.Fprintf(&b, " [cpe:%s]", strings.Join(service.CPE, ", "))
+				fmt.Fprintf(&b, " [%s]", strings.Join(service.CPE, ", "))
 			}
 			fmt.Fprintf(&b, "\n")
 		}
@@ -120,7 +120,7 @@ func collectBanners(services []shodan.ServiceRecord) []bannerLine {
 			continue
 		}
 		if len(text) > 200 {
-			text = text[:200] + "..."
+			text = text[:200] + "…"
 		}
 		lines = append(lines, bannerLine{
 			port: service.Port,
@@ -166,16 +166,6 @@ func formatTagsWithContext(tags []string) string {
 	return strings.Join(annotated, ", ")
 }
 
-func dateOrUnknown(ts interface {
-	IsZero() bool
-	Format(string) string
-}) string {
-	if ts.IsZero() {
-		return "(unknown)"
-	}
-	return ts.Format("2006-01-02")
-}
-
 func formatMarkdown(result *shodan.ShodanHostResult) string {
 	var b strings.Builder
 
@@ -208,7 +198,7 @@ func formatMarkdown(result *shodan.ShodanHostResult) string {
 				productVersion = "—"
 			}
 			if len(service.CPE) > 0 {
-				productVersion += " [cpe:" + strings.Join(service.CPE, ", ") + "]"
+				productVersion += " [" + strings.Join(service.CPE, ", ") + "]"
 			}
 			fmt.Fprintf(&b, "| %d | %s | %s | %s |\n", service.Port, valueOr(service.Transport, "tcp"), valueOr(strings.TrimSpace(service.Module), "—"), productVersion)
 		}
