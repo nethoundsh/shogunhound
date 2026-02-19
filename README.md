@@ -368,6 +368,7 @@ Using the investigation prompts:
 **Ask the agent:**
 - "How many SSH servers are exposed in Germany right now?"
 - "Before I search, how large is `vuln:CVE-2021-44228`?"
+- "How many hosts in AS15169 have port 443 open?"
 
 **Example parameters:**
 
@@ -415,6 +416,7 @@ Using the investigation prompts:
 **Ask the agent:**
 - "Find nginx servers in France."
 - "Show me hosts with `CVE-2021-44228` at Hetzner, page 2, as markdown."
+- "Search for Redis servers exposed on port 6379 in the US and return results as markdown."
 
 **Example parameters:**
 
@@ -468,6 +470,7 @@ Using the investigation prompts:
 **Ask the agent:**
 - "What IPs do `google.com` and `cloudflare.com` resolve to?"
 - "Resolve these domains: `example.com, github.com, microsoft.com`."
+- "Resolve `suspicious-c2.example.com` to its IP so I can query it in Shodan."
 
 **Example parameters:**
 
@@ -516,6 +519,7 @@ github.com -> 140.82.121.4
 **Ask the agent:**
 - "What hostname does `8.8.8.8` belong to?"
 - "Reverse DNS lookup on `8.8.8.8` and `1.1.1.1`."
+- "What domains are associated with `45.33.32.156`?"
 
 **Example parameters:**
 
@@ -560,6 +564,7 @@ github.com -> 140.82.121.4
 **Ask the agent:**
 - "Run a bulk Shodan profile for these IPs: `8.8.8.8,1.1.1.1,9.9.9.9`."
 - "Bulk query this list in markdown and include CVE counts."
+- "Triage all public IPs from this incident scope: `203.0.113.10,203.0.113.11,203.0.113.12`."
 
 **Example parameters:**
 
@@ -575,6 +580,18 @@ github.com -> 140.82.121.4
 }
 ```
 
+**Example output (excerpt):**
+
+```
+## Shodan Bulk Query
+
+| IP | Status | Ports | CVEs |
+|----|--------|-------|------|
+| 8.8.8.8 | ok | 53,443 | 0 |
+| 1.1.1.1 | ok | 53,80,443 | 0 |
+| 9.9.9.9 | ok | 53 | 0 |
+```
+
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
@@ -587,6 +604,14 @@ github.com -> 140.82.121.4
 | `clear_cache` | boolean | No | `false` | Evict each IP from cache before querying |
 | `max_workers` | number | No | `4` | Concurrent workers (bounded to 1..10) |
 
+**Error responses** are returned as MCP tool errors with human-readable messages:
+
+| Condition | Message |
+|---|---|
+| Missing or empty IP list | `missing required parameter: ips` or `ips must contain at least one entry` |
+| Too many IPs | `ips must not exceed 100 entries` |
+| Invalid or private IP (per-host) | Appears inline in each output row; does not abort the whole batch |
+
 ---
 
 **Tool name:** `shodan_cve_lookup`
@@ -597,6 +622,7 @@ github.com -> 140.82.121.4
 **Ask the agent:**
 - "Check `CVE-2021-44228` exposure and exploit availability."
 - "Lookup `CVE-2023-34362` as JSON."
+- "Is there a public exploit for `CVE-2024-3400`? How many hosts are affected?"
 
 **Example parameters:**
 
@@ -607,12 +633,33 @@ github.com -> 140.82.121.4
 }
 ```
 
+**Example output:**
+
+```text
+CVE CVE-2021-44228
+Affected hosts: 24837
+Exploit available: true
+Exploit entries: 15
+CVSS: 10.0
+```
+
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `cve` | string | **Yes** | — | CVE identifier (e.g. `CVE-2021-44228`) |
 | `format` | string | No | `pretty` | Output format: `pretty`, `markdown`, or `json` |
+
+**Error responses** are returned as MCP tool errors with human-readable messages:
+
+| Condition | Message |
+|---|---|
+| Missing CVE identifier | `missing required parameter: cve` |
+| CVE not found in Shodan | `No results found for that query; the search returned no indexed hosts` |
+| Authentication failure | `Shodan authentication failed; check your API key` |
+| Rate limit exceeded | `Shodan rate limit exceeded; wait 60 seconds and retry` |
+| Query timeout | `Shodan query timed out; try again` |
+| Shodan API error | `Shodan API error; try again later` |
 
 ---
 
@@ -621,14 +668,25 @@ github.com -> 140.82.121.4
 **Description (as seen by the LLM):**
 > Create a Shodan network monitor alert for one or more IP/CIDR targets.
 
+**Ask the agent:**
+- "Create a Shodan alert named `engagement-monitor` watching `203.0.113.0/24`."
+- "Start monitoring `198.51.100.1` and `198.51.100.2` for new open services."
+- "Set up a 7-day alert for the client's public IP range — it expires after 604800 seconds."
+
 **Example parameters:**
 
 ```json
 {
   "name": "engagement-monitor",
-  "targets": "8.8.8.8,1.1.1.1",
+  "targets": "203.0.113.0/24",
   "expires": 0
 }
+```
+
+**Example output:**
+
+```text
+Created alert engagement-monitor (a1b2c3d4) for 1 target(s)
 ```
 
 **Parameters:**
@@ -639,6 +697,18 @@ github.com -> 140.82.121.4
 | `targets` | string | **Yes** | — | Comma/newline-separated IPs or CIDRs to monitor (max 100) |
 | `expires` | number | No | `0` | Expiration in seconds (`0` means no expiry) |
 
+**Error responses** are returned as MCP tool errors with human-readable messages:
+
+| Condition | Message |
+|---|---|
+| Missing alert name | `missing required parameter: name` |
+| Missing or empty targets | `missing required parameter: targets` or `targets must contain at least one entry` |
+| Too many targets | `targets must not exceed 100 entries` |
+| Authentication failure | `Shodan authentication failed; check your API key` |
+| Rate limit exceeded | `Shodan rate limit exceeded; wait 60 seconds and retry` |
+| Query timeout | `Shodan query timed out; try again` |
+| Shodan API error | `Shodan API error; try again later` |
+
 ---
 
 **Tool name:** `shodan_alert_list`
@@ -646,11 +716,41 @@ github.com -> 140.82.121.4
 **Description (as seen by the LLM):**
 > List configured Shodan network monitor alerts.
 
+**Ask the agent:**
+- "Show all my active Shodan monitor alerts."
+- "List my alerts as a markdown table."
+- "What alerts do I currently have configured, and what are their IDs?"
+
+**Example parameters:**
+
+```json
+{
+  "format": "pretty"
+}
+```
+
+**Example output:**
+
+```text
+SHODAN ALERTS (2)
+- engagement-monitor (a1b2c3d4) targets=1 expires=0
+- client-recon (e5f6g7h8) targets=5 expires=0
+```
+
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `format` | string | No | `pretty` | Output format: `pretty`, `markdown`, or `json` |
+
+**Error responses** are returned as MCP tool errors with human-readable messages:
+
+| Condition | Message |
+|---|---|
+| Authentication failure | `Shodan authentication failed; check your API key` |
+| Rate limit exceeded | `Shodan rate limit exceeded; wait 60 seconds and retry` |
+| Query timeout | `Shodan query timed out; try again` |
+| Shodan API error | `Shodan API error; try again later` |
 
 ---
 
@@ -659,11 +759,40 @@ github.com -> 140.82.121.4
 **Description (as seen by the LLM):**
 > Delete a Shodan network monitor alert by ID.
 
+**Ask the agent:**
+- "Delete the Shodan alert with ID `a1b2c3d4`."
+- "Remove the `engagement-monitor` alert — get its ID from `shodan_alert_list` first, then delete it."
+- "Clean up all alerts from last week's engagement."
+
+**Example parameters:**
+
+```json
+{
+  "id": "a1b2c3d4"
+}
+```
+
+**Example output:**
+
+```text
+Alert deleted
+```
+
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `id` | string | **Yes** | — | Alert ID to delete |
+
+**Error responses** are returned as MCP tool errors with human-readable messages:
+
+| Condition | Message |
+|---|---|
+| Missing alert ID | `missing required parameter: id` |
+| Authentication failure | `Shodan authentication failed; check your API key` |
+| Rate limit exceeded | `Shodan rate limit exceeded; wait 60 seconds and retry` |
+| Query timeout | `Shodan query timed out; try again` |
+| Shodan API error | `Shodan API error; try again later` |
 
 ---
 
@@ -671,6 +800,11 @@ github.com -> 140.82.121.4
 
 **Description (as seen by the LLM):**
 > Generate an exposure report for multiple public IPs.
+
+**Ask the agent:**
+- "Generate an exposure report for `8.8.8.8`, `1.1.1.1`, and `9.9.9.9`."
+- "Give me a markdown summary of CVE exposure and top ports across this IP list."
+- "Report on all public-facing IPs from this engagement scope."
 
 **Example parameters:**
 
@@ -681,12 +815,44 @@ github.com -> 140.82.121.4
 }
 ```
 
+**Example output (excerpt):**
+
+```markdown
+## Shodan Exposure Report
+
+- Total IPs: 3
+- Successful queries: 3
+- Cache hits: 0
+- Errors: 0
+- Total CVEs observed: 0
+
+### Top Ports
+
+- 53: 3 host(s)
+- 443: 2 host(s)
+- 80: 1 host(s)
+
+### Host Details
+
+- `8.8.8.8`: org=Google LLC ports=53,443 cves=0
+- `1.1.1.1`: org=APNIC and Cloudflare DNS Resolver project ports=53,80,443 cves=0
+- `9.9.9.9`: org=QUAD9 ports=53 cves=0
+```
+
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `ips` | string | **Yes** | — | Comma/newline-separated public IPv4/IPv6 addresses (max 100) |
 | `format` | string | No | `markdown` | Output format: `markdown` or `json` |
+
+**Error responses** are returned as MCP tool errors with human-readable messages:
+
+| Condition | Message |
+|---|---|
+| Missing or empty IP list | `missing required parameter: ips` or `ips must contain at least one entry` |
+| Too many IPs | `ips must not exceed 100 entries` |
+| Invalid or private IP (per-host) | Appears inline in the Host Details section; does not abort the whole report |
 
 ---
 
