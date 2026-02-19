@@ -1,0 +1,25 @@
+# Compiled binary
+shogunhound
+shogunhound.exe
+
+# Go build artifacts
+*.test
+*.out
+vendor/
+
+# Runtime data (if CACHE_PATH or LOG_PATH are set inside the project)
+*.log
+.shodan_cache.json
+
+# Environment / secrets
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+*.swp
+*.swo

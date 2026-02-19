@@ -212,6 +212,14 @@ This is the primary use case. Cursor's Remote SSH extension runs editor processe
 
 Claude Code natively supports MCP stdio servers. `shogunhound` works without any modification.
 
+> **Important:** `SHODAN_API_KEY` must be set persistently in your `~/.bashrc` or `~/.zshrc` — not just exported temporarily in a terminal session. Claude Code reads environment variables from your shell profile at startup. A one-off `export` in a terminal will not carry over to Claude Code or its MCP subprocesses.
+>
+> Add this to your `~/.bashrc` or `~/.zshrc` before proceeding:
+> ```bash
+> export SHODAN_API_KEY="your_api_key_here"
+> ```
+> Then reload your shell (`source ~/.bashrc` or open a new terminal) before running the commands below.
+
 Add globally (available in all Claude Code sessions on this machine):
 
 ```bash

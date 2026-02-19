@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "shogunhound": {
-      "command": "/home/nethound/projects/shogunhound/shogunhound",
+      "command": "/usr/local/bin/shogunhound",
       "env": {
-        "SHODAN_API_KEY": "oG43oOiKdxj2dyniXfnul564bbgpRQeI"
+        "SHODAN_API_KEY": "${SHODAN_API_KEY}"
       }
     }
   }
