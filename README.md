@@ -18,7 +18,7 @@ IDENTITY
  OS           : (unknown)
  Hostnames    : one.one.one.one
  Tags         : (none)
- Last Seen    : 2026-02-17
+ Last Seen    : 2026-02-17 (recent)
 
 LOCATION
  Country : Australia
@@ -70,7 +70,7 @@ BANNERS
 
 ## How It Works
 
-shogunhound runs as a subprocess on your VPS. An MCP client — Cursor, a terminal agent, or any MCP-compatible editor — communicates with it over stdin/stdout. When the LLM decides it needs host intelligence for an IP, it calls the `shodan_ip_query` tool directly. Results come back as formatted text or raw JSON, ready for the model to synthesize into recommendations or investigation notes.
+shogunhound runs as a subprocess on your VPS. An MCP client — Cursor, a terminal agent, or any MCP-compatible editor — communicates with it over stdin/stdout. When the LLM needs Shodan intelligence, it can call a focused tool (`shodan_ip_query`, `shodan_search`, `shodan_dns_*`, `shodan_cve_lookup`, `shodan_ip_query_bulk`, `shodan_report`, and Shodan Monitor alert tools). Results come back as formatted text or raw JSON, ready for synthesis into investigation notes.
 
 ```
 Cursor (Remote SSH)
@@ -114,7 +114,7 @@ The binary lives on the VPS. No open ports. No daemon to manage. The MCP client 
 ## Prerequisites
 
 - A VPS running Linux (Ubuntu 22.04+ or Debian 12+ recommended)
-- [Go 1.21+](https://go.dev/dl/)
+- [Go 1.25+](https://go.dev/dl/)
 - A [Shodan API key](https://account.shodan.io/) (free tier works; 1 req/s rate limit applies)
 - `git`
 
@@ -187,7 +187,8 @@ This is the primary use case. Cursor's Remote SSH extension runs editor processe
     "shogunhound": {
       "command": "/usr/local/bin/shogunhound",
       "env": {
-        "SHODAN_API_KEY": "${env:SHODAN_API_KEY}"
+        "SHODAN_API_KEY": "${env:SHODAN_API_KEY}",
+        "SHODAN_TIER": "${env:SHODAN_TIER}"
       }
     }
   }
@@ -200,7 +201,7 @@ This is the primary use case. Cursor's Remote SSH extension runs editor processe
 
 1. Connect to your VPS via Cursor Remote SSH
 2. Open Cursor Settings → MCP
-3. `shogunhound` should appear as a connected server with `shodan_ip_query` listed
+3. `shogunhound` should appear as a connected server with tools like `shodan_ip_query`, `shodan_search`, and `shodan_dns_reverse`
 4. In the chat, ask: *"What ports are open on 8.8.8.8?"* — the agent will invoke `shodan_ip_query` automatically
 
 **Troubleshooting:**
@@ -231,6 +232,7 @@ Add globally (available in all Claude Code sessions on this machine):
 ```bash
 claude mcp add --transport stdio \
   --env SHODAN_API_KEY="${SHODAN_API_KEY}" \
+  --env SHODAN_TIER="${SHODAN_TIER}" \
   shogunhound -- /usr/local/bin/shogunhound
 ```
 
@@ -243,7 +245,8 @@ Or add to a project (checked into git, shared with the team) by creating `.mcp.j
       "type": "stdio",
       "command": "/usr/local/bin/shogunhound",
       "env": {
-        "SHODAN_API_KEY": "${SHODAN_API_KEY}"
+        "SHODAN_API_KEY": "${SHODAN_API_KEY}",
+        "SHODAN_TIER": "${SHODAN_TIER}"
       }
     }
   }
@@ -279,9 +282,9 @@ Using the investigation prompts:
 | `shodan_dns_reverse` | Reverse-resolve IPs -> hostnames via Shodan DNS | Free |
 | `shodan_ip_query_bulk` | Bulk host lookups for multiple public IPs | Free/Paid |
 | `shodan_cve_lookup` | CVE intelligence: host count + exploit availability | Free/Paid |
-| `shodan_alert_create` | Create Shodan Monitor alert | Paid |
-| `shodan_alert_list` | List Shodan Monitor alerts | Paid |
-| `shodan_alert_delete` | Delete Shodan Monitor alert by ID | Paid |
+| `shodan_alert_create` | Create Shodan Monitor alert | Plan-dependent |
+| `shodan_alert_list` | List Shodan Monitor alerts | Plan-dependent |
+| `shodan_alert_delete` | Delete Shodan Monitor alert by ID | Plan-dependent |
 | `shodan_report` | Multi-IP exposure report generation | Free/Paid |
 
 ---
@@ -289,7 +292,13 @@ Using the investigation prompts:
 **Tool name:** `shodan_ip_query`
 
 **Description (as seen by the LLM):**
-> Queries Shodan for public IP host intelligence: open ports, running services, banner data, organization, geolocation, and known CVEs. Returns structured findings for security analysis. For ethical, authorized use only. Comply with Shodan Terms of Service: https://www.shodan.io/about/terms
+> Queries Shodan for a single public IP: open ports, running services, banner data, organization, geolocation, and CVEs. Use this first when investigating a specific IP.
+>
+> Format guidance: use format=markdown for chat responses, format=json when chaining with other tools or scripts, format=pretty for plain-text summaries.
+>
+> After receiving results: flag any CVEs as high-priority findings. Note unexpected services (admin panels, databases, RDP, Telnet). Highlight the organization and ASN for attribution. If the result contains no services, the host may be unindexed — note this and suggest the user verify the IP is public and reachable.
+>
+> For ethical, authorized use only. Comply with Shodan Terms of Service: https://www.shodan.io/about/terms
 
 **Ask the agent:**
 - "What ports are open on `8.8.8.8`?"
@@ -349,7 +358,12 @@ Using the investigation prompts:
 **Tool name:** `shodan_count`
 
 **Description (as seen by the LLM):**
-> Returns the number of Shodan-indexed hosts matching a search query. Use to assess scope before running a full search. Supports all Shodan search filters. Free tier compatible.
+> Returns the number of Shodan-indexed hosts matching a search query — no result details and no query credits consumed.
+>
+> Use before shodan_search to gauge scope and avoid unexpectedly large result sets. If the count exceeds ~500, suggest refining the query with additional filters (country:XX, org:"name", port:N, version:"x.y") before searching.
+>
+> Supports all Shodan search filters. Free tier compatible.
+> For ethical, authorized use only.
 
 **Ask the agent:**
 - "How many SSH servers are exposed in Germany right now?"
@@ -389,7 +403,14 @@ Using the investigation prompts:
 **Tool name:** `shodan_search`
 
 **Description (as seen by the LLM):**
-> Searches Shodan for hosts matching a query. Returns IP, organization, country, and open ports for each match. Requires a paid Shodan API key for most queries.
+> Searches Shodan and returns matching hosts with IP, organization, country, and open ports. Use after shodan_count to confirm the result set is manageable. 100 results per page.
+>
+> Format guidance: format=markdown produces a table suitable for chat; format=json is best for downstream processing.
+>
+> After receiving results: look for repeated organizations, geographic clustering, and shared service versions. Flag hosts running unexpected or known-vulnerable services, then call shodan_ip_query for deeper host-level analysis.
+>
+> Requires a paid Shodan API key for most filtered queries.
+> For ethical, authorized use only. Comply with Shodan Terms of Service: https://www.shodan.io/about/terms
 
 **Ask the agent:**
 - "Find nginx servers in France."
@@ -439,6 +460,10 @@ Using the investigation prompts:
 
 **Description (as seen by the LLM):**
 > Resolves hostnames to IP addresses using Shodan's DNS database. Up to 100 hostnames per call.
+>
+> Use when given a domain instead of an IP: resolve first, then call shodan_ip_query on the result. Also useful for bulk resolution from threat intel feeds.
+>
+> If a hostname is not found in Shodan's database, try live DNS as a fallback.
 
 **Ask the agent:**
 - "What IPs do `google.com` and `cloudflare.com` resolve to?"
@@ -482,7 +507,11 @@ github.com -> 140.82.121.4
 **Tool name:** `shodan_dns_reverse`
 
 **Description (as seen by the LLM):**
-> Looks up hostnames for IP addresses using Shodan's DNS database. Accepts only public IPs. Up to 100 IPs per call.
+> Looks up hostnames for IP addresses using Shodan's DNS database. Up to 100 IPs per call; public IPs only.
+>
+> Use to attribute suspicious IPs (CDN, cloud provider, VPN exit node, hosting company) or pivot from an IP to related domain infrastructure.
+>
+> Only indexed PTR data is returned — absence of results does not prove no hostname exists.
 
 **Ask the agent:**
 - "What hostname does `8.8.8.8` belong to?"
@@ -523,6 +552,144 @@ github.com -> 140.82.121.4
 
 ---
 
+**Tool name:** `shodan_ip_query_bulk`
+
+**Description (as seen by the LLM):**
+> Bulk Shodan host queries for comma/newline-separated public IPs.
+
+**Ask the agent:**
+- "Run a bulk Shodan profile for these IPs: `8.8.8.8,1.1.1.1,9.9.9.9`."
+- "Bulk query this list in markdown and include CVE counts."
+
+**Example parameters:**
+
+```json
+{
+  "ips": "8.8.8.8,1.1.1.1,9.9.9.9",
+  "format": "markdown",
+  "history": false,
+  "minify": false,
+  "tier": "free",
+  "clear_cache": false,
+  "max_workers": 4
+}
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `ips` | string | **Yes** | — | Comma- or newline-separated public IPv4/IPv6 addresses (max 100) |
+| `format` | string | No | `pretty` | Output format: `pretty`, `markdown`, or `json` |
+| `history` | boolean | No | `false` | Include historical banner data |
+| `minify` | boolean | No | `false` | Omit banner payloads |
+| `tier` | string | No | `free` | Rate limit tier: `free` or `paid` |
+| `clear_cache` | boolean | No | `false` | Evict each IP from cache before querying |
+| `max_workers` | number | No | `4` | Concurrent workers (bounded to 1..10) |
+
+---
+
+**Tool name:** `shodan_cve_lookup`
+
+**Description (as seen by the LLM):**
+> Lookup a CVE across Shodan host and exploit datasets, returning host count and exploit availability.
+
+**Ask the agent:**
+- "Check `CVE-2021-44228` exposure and exploit availability."
+- "Lookup `CVE-2023-34362` as JSON."
+
+**Example parameters:**
+
+```json
+{
+  "cve": "CVE-2021-44228",
+  "format": "pretty"
+}
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `cve` | string | **Yes** | — | CVE identifier (e.g. `CVE-2021-44228`) |
+| `format` | string | No | `pretty` | Output format: `pretty`, `markdown`, or `json` |
+
+---
+
+**Tool name:** `shodan_alert_create`
+
+**Description (as seen by the LLM):**
+> Create a Shodan network monitor alert for one or more IP/CIDR targets.
+
+**Example parameters:**
+
+```json
+{
+  "name": "engagement-monitor",
+  "targets": "8.8.8.8,1.1.1.1",
+  "expires": 0
+}
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | string | **Yes** | — | Human-readable alert name |
+| `targets` | string | **Yes** | — | Comma/newline-separated IPs or CIDRs to monitor (max 100) |
+| `expires` | number | No | `0` | Expiration in seconds (`0` means no expiry) |
+
+---
+
+**Tool name:** `shodan_alert_list`
+
+**Description (as seen by the LLM):**
+> List configured Shodan network monitor alerts.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `format` | string | No | `pretty` | Output format: `pretty`, `markdown`, or `json` |
+
+---
+
+**Tool name:** `shodan_alert_delete`
+
+**Description (as seen by the LLM):**
+> Delete a Shodan network monitor alert by ID.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `id` | string | **Yes** | — | Alert ID to delete |
+
+---
+
+**Tool name:** `shodan_report`
+
+**Description (as seen by the LLM):**
+> Generate an exposure report for multiple public IPs.
+
+**Example parameters:**
+
+```json
+{
+  "ips": "8.8.8.8\n1.1.1.1\n9.9.9.9",
+  "format": "markdown"
+}
+```
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `ips` | string | **Yes** | — | Comma/newline-separated public IPv4/IPv6 addresses (max 100) |
+| `format` | string | No | `markdown` | Output format: `markdown` or `json` |
+
+---
+
 ## Output Formats
 
 ### Pretty (default)
@@ -541,7 +708,7 @@ IDENTITY
  OS           : (unknown)
  Hostnames    : dns.google
  Tags         : (none)
- Last Seen    : 2026-02-17
+ Last Seen    : 2026-02-17 (recent)
 
 LOCATION
  Country : United States
@@ -599,7 +766,7 @@ Markdown output is designed for direct rendering in chat surfaces and reports.
 
 **Organization:** Google LLC | **ISP:** Google LLC | **ASN:** AS15169
 **Country:** United States | **City:** Mountain View
-**OS:** (unknown) | **Last Seen:** 2026-02-17
+**OS:** (unknown) | **Last Seen:** 2026-02-17 (recent)
 **Hostnames:** dns.google
 **Tags:** (none)
 
@@ -646,7 +813,7 @@ Results are cached locally to reduce redundant API calls and support offline re-
 - **Writes:** Atomic — results are written to a temp file and renamed to prevent corruption on crash.
 - **Force refresh:** Pass `clear_cache=true` (MCP) to evict and re-query.
 
-The cache is loaded into memory at startup. If the cache file is corrupt or unreadable, shogunhound starts cleanly with an empty cache and logs a warning to stderr.
+The cache is loaded into memory at startup. Expired entries are discarded during load. If the cache file is corrupt or unreadable, shogunhound starts cleanly with an empty cache and logs a warning to stderr.
 
 ---
 
@@ -749,13 +916,14 @@ go build -ldflags "-X main.version=$(git describe --tags --always --dirty)" -o s
 go test ./...
 ```
 
-All tests are hermetic — no live Shodan API calls are made. The Shodan client tests use `net/http/httptest` to mock API responses. Expected output:
+All tests are hermetic — no live Shodan API calls are made. The Shodan client tests use `net/http/httptest` to mock API responses. Example output:
 
 ```
-ok  github.com/nethoundsh/shogunhound/internal/cache       (8 tests)
-ok  github.com/nethoundsh/shogunhound/internal/formatter   (5 tests)
-ok  github.com/nethoundsh/shogunhound/internal/shodan      (6 tests)
-ok  github.com/nethoundsh/shogunhound/internal/validator   (23 subtests)
+ok  github.com/nethoundsh/shogunhound/internal/cache
+ok  github.com/nethoundsh/shogunhound/internal/formatter
+ok  github.com/nethoundsh/shogunhound/internal/handler
+ok  github.com/nethoundsh/shogunhound/internal/shodan
+ok  github.com/nethoundsh/shogunhound/internal/validator
 ```
 
 > The `shodan` package tests take ~5 seconds. This is expected: the timeout test waits for a 4-second context deadline to elapse.
@@ -778,6 +946,12 @@ Run these against a real `SHODAN_API_KEY` before tagging a release:
 [ ] shodan_dns_resolve hostnames="google.com,cloudflare.com" → IPs returned
 [ ] shodan_dns_reverse ips="8.8.8.8,1.1.1.1"     → hostnames returned
 [ ] shodan_dns_reverse ips="192.168.1.1"         → validation error (private IP)
+[ ] shodan_ip_query_bulk ips="8.8.8.8,1.1.1.1" format=markdown → table output with per-IP status
+[ ] shodan_cve_lookup cve="CVE-2021-44228"       → host count + exploit availability
+[ ] shodan_report ips="8.8.8.8,1.1.1.1"          → markdown summary + host detail lines
+[ ] shodan_alert_create name="test" targets="8.8.8.8" → alert created (monitor-enabled plan)
+[ ] shodan_alert_list format=pretty              → includes created alert
+[ ] shodan_alert_delete id="<alert-id>"          → alert removed
 [ ] shodan_count query="invalid::query::"        → graceful error, not panic
 [ ] Kill network mid-query             → timeout error within 4 seconds
 [ ] Corrupt cache file, restart        → starts cleanly, cache rebuilt from scratch
@@ -807,7 +981,8 @@ shogunhound/
 │   │   ├── formatter.go         # Pretty, markdown, and JSON output formatters
 │   │   └── formatter_test.go
 │   └── handler/
-│       └── handler.go           # MCP tool handler, audit logger, error humanizer
+│       ├── handler.go           # MCP tool handlers, audit logger, error humanizer
+│       └── handler_test.go
 ├── deploy/
 │   └── shogunhound.service      # systemd unit (for future HTTP/SSE deployment)
 ├── DESIGN.md                    # Full technical design document
@@ -824,8 +999,7 @@ Contributions are welcome. Please open an issue before submitting a pull request
 
 **Areas actively looking for contributions:**
 
-- Fix for the [Tags field limitation](#known-limitations) (custom decode envelope around `go-shodan`)
-- Handler integration tests
+- Additional handler integration tests for remaining tool paths (`shodan_alert_*`, `shodan_cve_lookup`, `shodan_report`)
 - IPv6 end-to-end testing against the live Shodan API
 - Docker image / GHCR publish workflow
 
