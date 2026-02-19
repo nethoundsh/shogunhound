@@ -147,6 +147,7 @@ shogunhound is configured entirely through environment variables. Add these to y
 export SHODAN_API_KEY="your_api_key_here"   # Required
 export CACHE_PATH="$HOME/.shodan_cache.json" # Optional; this is the default
 export LOG_PATH="$HOME/shodan_queries.log"   # Optional; this is the default
+export SHODAN_TIER="free"                    # Optional; "paid" enables faster pacing defaults
 ```
 
 | Variable | Required | Default | Description |
@@ -154,6 +155,7 @@ export LOG_PATH="$HOME/shodan_queries.log"   # Optional; this is the default
 | `SHODAN_API_KEY` | **Yes** | — | Your Shodan API key. Never logged or written to disk. |
 | `CACHE_PATH` | No | `~/.shodan_cache.json` | Path to the local result cache. |
 | `LOG_PATH` | No | `~/shodan_queries.log` | Path to the audit log. |
+| `SHODAN_TIER` | No | `free` | Default Shodan tier for client pacing (`free` or `paid`). |
 
 Protect the log file after creation:
 
@@ -165,6 +167,10 @@ chmod 600 ~/shodan_queries.log
 ---
 
 ## Usage
+
+### Future: HTTP/SSE Deployment
+
+The `deploy/shogunhound.service` unit is included as an experimental future-facing asset. The current MVP is stdio-only, so this service file is not part of the supported runtime path yet.
 
 ### MCP Server — Cursor over SSH
 
@@ -271,6 +277,12 @@ Using the investigation prompts:
 | `shodan_search` | Search hosts by query, returns list | Paid |
 | `shodan_dns_resolve` | Resolve hostnames -> IPs via Shodan DNS | Free |
 | `shodan_dns_reverse` | Reverse-resolve IPs -> hostnames via Shodan DNS | Free |
+| `shodan_ip_query_bulk` | Bulk host lookups for multiple public IPs | Free/Paid |
+| `shodan_cve_lookup` | CVE intelligence: host count + exploit availability | Free/Paid |
+| `shodan_alert_create` | Create Shodan Monitor alert | Paid |
+| `shodan_alert_list` | List Shodan Monitor alerts | Paid |
+| `shodan_alert_delete` | Delete Shodan Monitor alert by ID | Paid |
+| `shodan_report` | Multi-IP exposure report generation | Free/Paid |
 
 ---
 
@@ -711,8 +723,8 @@ The primary (stdio) deployment model requires no open ports. The binary is invok
 
 ## Known Limitations
 
-**No batch queries.**
-The tool accepts one IP at a time. Multi-IP batch queries are planned for a future release.
+**Bulk query is summary-first.**
+`shodan_ip_query_bulk` optimizes for breadth and quick triage. For deep per-host analysis, follow up with `shodan_ip_query` on specific IPs.
 
 **`shodan_ip_query` requires IP addresses.**
 The `ip` parameter only accepts IPv4 or IPv6 addresses — not hostnames. Use `shodan_dns_resolve` to resolve a hostname to an IP first, then query it.

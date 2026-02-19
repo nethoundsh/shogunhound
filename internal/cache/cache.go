@@ -14,10 +14,8 @@ import (
 )
 
 const (
-	cacheTTL   = 24 * time.Hour
-	maxEntries = 100
-	// cacheVersion is written to disk for future compatibility checks.
-	// It is not currently validated on load.
+	cacheTTL     = 24 * time.Hour
+	maxEntries   = 100
 	cacheVersion = 1
 )
 
@@ -175,12 +173,24 @@ func (c *Cache) load() error {
 		return err
 	}
 
+	if payload.Version != cacheVersion {
+		fmt.Fprintf(os.Stderr, "warning: cache version mismatch (got %d, want %d); discarding cache\n", payload.Version, cacheVersion)
+		c.entries = make(map[string]Entry)
+		return nil
+	}
+
 	if payload.Entries == nil {
 		c.entries = make(map[string]Entry)
 		return nil
 	}
 
-	c.entries = payload.Entries
+	now := time.Now()
+	c.entries = make(map[string]Entry, len(payload.Entries))
+	for ip, entry := range payload.Entries {
+		if now.Before(entry.ExpiresAt) {
+			c.entries[ip] = entry
+		}
+	}
 	return nil
 }
 
@@ -189,6 +199,7 @@ func expandPath(path string) (string, error) {
 		return "", fmt.Errorf("cache path cannot be empty")
 	}
 
+	// Note: only bare ~ and ~/ are expanded. ~username/ paths are not supported.
 	if strings.HasPrefix(path, "~") {
 		home, err := os.UserHomeDir()
 		if err != nil {

@@ -125,17 +125,26 @@ func TestCacheTTLBoundary(t *testing.T) {
 }
 
 func TestCacheEvictsOldestAfter100Entries(t *testing.T) {
+	t.Parallel()
+
 	cachePath := filepath.Join(t.TempDir(), "cache.json")
 	c, err := New(cachePath)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	for i := 0; i < 101; i++ {
+	base := time.Now().Add(-2 * time.Hour)
+	for i := 0; i < 100; i++ {
 		ip := fmt.Sprintf("203.0.113.%d", i%255)
-		c.Set(ip, &shodan.ShodanHostResult{IP: ip})
-		time.Sleep(1 * time.Millisecond)
+		q := base.Add(time.Duration(i) * time.Millisecond)
+		c.entries[ip] = Entry{
+			QueriedAt: q,
+			ExpiresAt: q.Add(cacheTTL),
+			Data:      &shodan.ShodanHostResult{IP: ip},
+		}
 	}
+
+	c.Set("203.0.113.100", &shodan.ShodanHostResult{IP: "203.0.113.100"})
 
 	if len(c.entries) != maxEntries {
 		t.Fatalf("entry count = %d, want %d", len(c.entries), maxEntries)
@@ -182,5 +191,50 @@ func TestCacheCorruptFileRecovery(t *testing.T) {
 
 	if len(c.entries) != 0 {
 		t.Fatalf("entries length = %d, want 0", len(c.entries))
+	}
+}
+
+func TestCacheVersionMismatchDiscardsEntries(t *testing.T) {
+	t.Parallel()
+
+	cachePath := filepath.Join(t.TempDir(), "cache.json")
+	payload := `{"version":999,"entries":{"8.8.8.8":{"queried_at":"2026-02-19T00:00:00Z","expires_at":"2026-02-20T00:00:00Z","data":{"IP":"8.8.8.8"}}}}`
+	if err := os.WriteFile(cachePath, []byte(payload), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	c, err := New(cachePath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if len(c.entries) != 0 {
+		t.Fatalf("entries length = %d, want 0 after version mismatch", len(c.entries))
+	}
+}
+
+func TestCacheLoadPrunesExpiredEntries(t *testing.T) {
+	t.Parallel()
+
+	cachePath := filepath.Join(t.TempDir(), "cache.json")
+	now := time.Now()
+	payload := fmt.Sprintf(`{"version":1,"entries":{"1.1.1.1":{"queried_at":%q,"expires_at":%q,"data":{"IP":"1.1.1.1"}},"8.8.8.8":{"queried_at":%q,"expires_at":%q,"data":{"IP":"8.8.8.8"}}}}`,
+		now.Add(-2*time.Hour).Format(time.RFC3339Nano),
+		now.Add(-1*time.Hour).Format(time.RFC3339Nano),
+		now.Add(-30*time.Minute).Format(time.RFC3339Nano),
+		now.Add(2*time.Hour).Format(time.RFC3339Nano),
+	)
+	if err := os.WriteFile(cachePath, []byte(payload), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	c, err := New(cachePath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if _, ok := c.entries["1.1.1.1"]; ok {
+		t.Fatalf("expired entry should be pruned")
+	}
+	if _, ok := c.entries["8.8.8.8"]; !ok {
+		t.Fatalf("fresh entry should remain")
 	}
 }

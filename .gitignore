@@ -21,5 +21,17 @@ Thumbs.db
 
 # Editor
 .idea/
+.vscode/
 *.swp
 *.swo
+*~
+
+# Go test coverage
+coverage.out
+*.coverprofile
+
+# Release / dist artifacts
+dist/
+
+# Defensive: atomic cache temp files if cache dir is inside project
+.shodan_cache_*.tmp

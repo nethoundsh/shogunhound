@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -25,6 +26,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	defer func() {
+		if err := h.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to close handler log file: %v\n", err)
+		}
+	}()
 
 	mcpServer := server.NewMCPServer("shogunhound", version)
 	mcpServer.AddTool(mcpTool(), h.HandleShodanIPQuery)
@@ -32,6 +38,12 @@ func main() {
 	mcpServer.AddTool(searchTool(), h.HandleShodanSearch)
 	mcpServer.AddTool(dnsResolveTool(), h.HandleShodanDNSResolve)
 	mcpServer.AddTool(dnsReverseTool(), h.HandleShodanDNSReverse)
+	mcpServer.AddTool(alertCreateTool(), h.HandleShodanAlertCreate)
+	mcpServer.AddTool(alertListTool(), h.HandleShodanAlertList)
+	mcpServer.AddTool(alertDeleteTool(), h.HandleShodanAlertDelete)
+	mcpServer.AddTool(cveLookupTool(), h.HandleShodanCVELookup)
+	mcpServer.AddTool(ipBulkTool(), h.HandleShodanIPQueryBulk)
+	mcpServer.AddTool(reportTool(), h.HandleShodanReport)
 	mcpServer.AddPrompt(
 		mcp.NewPrompt("investigate_ip",
 			mcp.WithPromptDescription("Step-by-step Shodan investigation workflow for a single public IP."),
@@ -114,13 +126,17 @@ func initComponents() (*cache.Cache, *shodan.ShodanClient, *handler.ToolHandler,
 	cachePath := envOrDefault("CACHE_PATH", "~/.shodan_cache.json")
 	logPath := envOrDefault("LOG_PATH", "~/shodan_queries.log")
 	apiKey := os.Getenv("SHODAN_API_KEY")
+	tier := "free"
+	if strings.EqualFold(os.Getenv("SHODAN_TIER"), "paid") {
+		tier = "paid"
+	}
 
 	c, err := cache.New(cachePath)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	client := shodan.NewClient(apiKey, "free")
+	client := shodan.NewClient(apiKey, tier)
 	h, err := handler.New(c, client, logPath)
 	if err != nil {
 		return nil, nil, nil, err
@@ -211,6 +227,86 @@ func dnsReverseTool() mcp.Tool {
 		mcp.WithString("ips",
 			mcp.Required(),
 			mcp.Description("Comma-separated list of public IPv4 or IPv6 addresses (e.g. '8.8.8.8,1.1.1.1')")),
+		mcp.WithReadOnlyHintAnnotation(true),
+	)
+}
+
+func alertCreateTool() mcp.Tool {
+	return mcp.NewTool("shodan_alert_create",
+		mcp.WithDescription("Create a Shodan network monitor alert for one or more IP/CIDR targets."),
+		mcp.WithString("name",
+			mcp.Required(),
+			mcp.Description("Human-readable alert name")),
+		mcp.WithString("targets",
+			mcp.Required(),
+			mcp.Description("Comma- or newline-separated public IPs/CIDRs to monitor")),
+		mcp.WithNumber("expires",
+			mcp.Description("Optional expiration (seconds, 0 means no expiry)")),
+		mcp.WithReadOnlyHintAnnotation(false),
+	)
+}
+
+func alertListTool() mcp.Tool {
+	return mcp.NewTool("shodan_alert_list",
+		mcp.WithDescription("List configured Shodan network monitor alerts."),
+		mcp.WithString("format",
+			mcp.Description("Output format: pretty, markdown, or json (default: pretty)")),
+		mcp.WithReadOnlyHintAnnotation(true),
+	)
+}
+
+func alertDeleteTool() mcp.Tool {
+	return mcp.NewTool("shodan_alert_delete",
+		mcp.WithDescription("Delete a Shodan network monitor alert by ID."),
+		mcp.WithString("id",
+			mcp.Required(),
+			mcp.Description("Alert ID to delete")),
+		mcp.WithReadOnlyHintAnnotation(false),
+	)
+}
+
+func cveLookupTool() mcp.Tool {
+	return mcp.NewTool("shodan_cve_lookup",
+		mcp.WithDescription("Lookup a CVE across Shodan host and exploit datasets, returning host count and exploit availability."),
+		mcp.WithString("cve",
+			mcp.Required(),
+			mcp.Description("CVE identifier (e.g. CVE-2021-44228)")),
+		mcp.WithString("format",
+			mcp.Description("Output format: pretty, markdown, or json (default: pretty)")),
+		mcp.WithReadOnlyHintAnnotation(true),
+	)
+}
+
+func ipBulkTool() mcp.Tool {
+	return mcp.NewTool("shodan_ip_query_bulk",
+		mcp.WithDescription("Bulk Shodan host queries for comma/newline-separated public IPs."),
+		mcp.WithString("ips",
+			mcp.Required(),
+			mcp.Description("Comma- or newline-separated public IPv4/IPv6 addresses")),
+		mcp.WithString("format",
+			mcp.Description("Output format: pretty, markdown, or json (default: pretty)")),
+		mcp.WithBoolean("history",
+			mcp.Description("Include historical banner data")),
+		mcp.WithBoolean("minify",
+			mcp.Description("Omit banner payloads")),
+		mcp.WithString("tier",
+			mcp.Description("Rate limit tier: free or paid")),
+		mcp.WithBoolean("clear_cache",
+			mcp.Description("Evict each IP from cache before querying")),
+		mcp.WithNumber("max_workers",
+			mcp.Description("Concurrent workers (1-10, default 4)")),
+		mcp.WithReadOnlyHintAnnotation(true),
+	)
+}
+
+func reportTool() mcp.Tool {
+	return mcp.NewTool("shodan_report",
+		mcp.WithDescription("Generate an exposure report for multiple public IPs."),
+		mcp.WithString("ips",
+			mcp.Required(),
+			mcp.Description("Comma- or newline-separated public IPv4/IPv6 addresses")),
+		mcp.WithString("format",
+			mcp.Description("Output format: markdown or json (default: markdown)")),
 		mcp.WithReadOnlyHintAnnotation(true),
 	)
 }

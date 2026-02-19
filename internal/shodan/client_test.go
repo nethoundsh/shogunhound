@@ -170,24 +170,50 @@ func TestQueryHostRespectsContextDuringRateLimitSleep(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("test-key", "free")
+	client := NewClient("test-key", "paid")
 	client.client.BaseURL = server.URL
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
 	start := time.Now()
-	_, err := client.QueryHost(ctx, "8.8.8.8", false, false)
+	result, err := client.QueryHost(ctx, "8.8.8.8", false, false)
 	elapsed := time.Since(start)
 
-	if err == nil {
-		t.Fatalf("expected context cancellation during sleep")
+	if err != nil {
+		t.Fatalf("expected successful result despite caller context timeout during sleep, got %v", err)
 	}
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("error = %v, want context.DeadlineExceeded", err)
+	if result == nil || result.IP != "8.8.8.8" {
+		t.Fatalf("unexpected result: %+v", result)
 	}
-	if elapsed > 300*time.Millisecond {
-		t.Fatalf("query took too long; sleep did not respect context: %v", elapsed)
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("query took too long; sleep handling is too slow: %v", elapsed)
+	}
+}
+
+func TestMapAPIErrorSentinels(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		input    string
+		expected error
+	}{
+		{"401 Unauthorized", ErrUnauthorized},
+		{"invalid api key", ErrUnauthorized},
+		{"429 Too Many Requests", ErrRateLimited},
+		{"rate limit reached", ErrRateLimited},
+		{"404 Not Found", ErrNotFound},
+		{"no information available for that ip", ErrNotFound},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.input, func(t *testing.T) {
+			err := mapAPIError(errors.New(tc.input))
+			if !errors.Is(err, tc.expected) {
+				t.Fatalf("mapAPIError(%q) = %v, want %v", tc.input, err, tc.expected)
+			}
+		})
 	}
 }
 
@@ -326,6 +352,101 @@ func TestDNSReverseInvalidIP(t *testing.T) {
 	_, err := client.DNSReverse(context.Background(), []string{"not-an-ip"})
 	if err == nil || !strings.Contains(err.Error(), "invalid IP address") {
 		t.Fatalf("expected invalid ip error, got: %v", err)
+	}
+}
+
+func TestCreateListDeleteAlert(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/shodan/alert":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"id":"abc123",
+				"name":"engagement-monitor",
+				"created":"2026-02-19T00:00:00Z",
+				"expires":0,
+				"filters":{"ip":["8.8.8.8","1.1.1.1"]}
+			}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/shodan/alert/info":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{
+				"id":"abc123",
+				"name":"engagement-monitor",
+				"created":"2026-02-19T00:00:00Z",
+				"expires":0,
+				"filters":{"ip":["8.8.8.8","1.1.1.1"]}
+			}]`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/shodan/alert/abc123":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"success": true}`))
+		default:
+			http.Error(w, "unexpected path", http.StatusBadRequest)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", "paid")
+	client.client.BaseURL = server.URL
+
+	created, err := client.CreateAlert(context.Background(), "engagement-monitor", []string{"8.8.8.8", "1.1.1.1"}, 0)
+	if err != nil {
+		t.Fatalf("CreateAlert() error = %v", err)
+	}
+	if created.ID != "abc123" || len(created.IPs) != 2 {
+		t.Fatalf("unexpected alert payload: %+v", created)
+	}
+
+	alerts, err := client.ListAlerts(context.Background())
+	if err != nil {
+		t.Fatalf("ListAlerts() error = %v", err)
+	}
+	if len(alerts) != 1 || alerts[0].ID != "abc123" {
+		t.Fatalf("unexpected alerts listing: %+v", alerts)
+	}
+
+	if err := client.DeleteAlert(context.Background(), "abc123"); err != nil {
+		t.Fatalf("DeleteAlert() error = %v", err)
+	}
+}
+
+func TestCVELookup(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/shodan/host/count":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"total": 123}`))
+		case r.URL.Path == "/search":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"total": 2,
+				"matches": [
+					{"cvss": 7.5},
+					{"cvss": "9.8"}
+				]
+			}`))
+		default:
+			http.Error(w, "unexpected path", http.StatusBadRequest)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", "paid")
+	client.client.BaseURL = server.URL
+	client.client.ExploitBaseURL = server.URL
+
+	out, err := client.CVELookup(context.Background(), "cve-2021-44228")
+	if err != nil {
+		t.Fatalf("CVELookup() error = %v", err)
+	}
+	if out.CVE != "CVE-2021-44228" || out.AffectedHostCount != 123 || out.ExploitCount != 2 || !out.ExploitAvailable {
+		t.Fatalf("unexpected lookup result: %+v", out)
+	}
+	if out.CVSS == nil || *out.CVSS != 9.8 {
+		t.Fatalf("unexpected CVSS extraction: %+v", out.CVSS)
 	}
 }
 

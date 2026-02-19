@@ -13,6 +13,10 @@ import (
 const headerLine = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 func Format(result *shodan.ShodanHostResult, format string) string {
+	if result == nil {
+		result = &shodan.ShodanHostResult{}
+	}
+
 	switch format {
 	case "json":
 		out, err := json.MarshalIndent(result, "", " ")
@@ -21,14 +25,7 @@ func Format(result *shodan.ShodanHostResult, format string) string {
 		}
 		return string(out)
 	case "markdown":
-		if result == nil {
-			result = &shodan.ShodanHostResult{}
-		}
 		return formatMarkdown(result)
-	}
-
-	if result == nil {
-		result = &shodan.ShodanHostResult{}
 	}
 
 	var b strings.Builder
@@ -119,8 +116,8 @@ func collectBanners(services []shodan.ServiceRecord) []bannerLine {
 		if text == "" {
 			continue
 		}
-		if len(text) > 200 {
-			text = text[:200] + "…"
+		if len([]rune(text)) > 200 {
+			text = truncateRunes(text, 200) + "…"
 		}
 		lines = append(lines, bannerLine{
 			port: service.Port,
@@ -128,6 +125,14 @@ func collectBanners(services []shodan.ServiceRecord) []bannerLine {
 		})
 	}
 	return lines
+}
+
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }
 
 func valueOr(value, fallback string) string {

@@ -7,7 +7,9 @@ import (
 	"net"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	goshodan "github.com/ns3777k/go-shodan/v4/shodan"
@@ -22,11 +24,28 @@ var (
 type ShodanClient struct {
 	client *goshodan.Client
 	tier   string // "free" or "paid"
+	mu     sync.RWMutex
 }
 
 type SearchResult struct {
 	Total   int
 	Matches []*ShodanHostResult
+}
+
+type Alert struct {
+	ID      string
+	Name    string
+	Created string
+	Expires int
+	IPs     []string
+}
+
+type CVELookupResult struct {
+	CVE               string
+	AffectedHostCount int
+	ExploitCount      int
+	ExploitAvailable  bool
+	CVSS              *float64
 }
 
 func NewClient(apiKey, tier string) *ShodanClient {
@@ -36,11 +55,28 @@ func NewClient(apiKey, tier string) *ShodanClient {
 	}
 }
 
-func (c *ShodanClient) SetTier(tier string) {
-	c.tier = normalizeTier(tier)
+func (c *ShodanClient) SetBaseURL(baseURL string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.client.BaseURL = baseURL
+}
+
+func (c *ShodanClient) SetExploitBaseURL(baseURL string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.client.ExploitBaseURL = baseURL
 }
 
 func (c *ShodanClient) QueryHost(ctx context.Context, ip string, history, minify bool) (*ShodanHostResult, error) {
+	return c.QueryHostWithTier(ctx, ip, history, minify, c.currentTier())
+}
+
+func (c *ShodanClient) QueryHostWithTier(
+	ctx context.Context,
+	ip string,
+	history, minify bool,
+	tier string,
+) (*ShodanHostResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 
@@ -60,13 +96,12 @@ func (c *ShodanClient) QueryHost(ctx context.Context, ip string, history, minify
 
 	result := mapHostToResult(&host.Host, host.Tags, minify)
 
-	// Enforce rate limit after a successful fetch. The sleep is context-aware
-	// so a canceled context exits immediately. Note: this sleep shares the
-	// same 4-second timeout context as the HTTP call; if the response arrived
-	// near deadline, sleep can return DeadlineExceeded after a valid fetch.
-	// Callers should treat DeadlineExceeded from QueryHost as uncertain.
-	if err := sleepWithContext(ctx, rateLimitDelay(c.tier)); err != nil {
-		return nil, err
+	delay := rateLimitDelay(tier)
+	sleepCtx, sleepCancel := context.WithTimeout(context.Background(), delay+200*time.Millisecond)
+	defer sleepCancel()
+	if err := sleepWithContext(sleepCtx, delay); err != nil {
+		// A sleep interruption (e.g., process shutdown) does not invalidate the fetched result.
+		return result, nil
 	}
 
 	return result, nil
@@ -160,6 +195,86 @@ func (c *ShodanClient) DNSReverse(ctx context.Context, ips []string) (map[string
 	}
 
 	return out, nil
+}
+
+func (c *ShodanClient) CreateAlert(ctx context.Context, name string, ipOrCIDRs []string, expires int) (*Alert, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	created, err := c.client.CreateAlert(ctx, name, ipOrCIDRs, expires)
+	if err != nil {
+		return nil, mapAPIError(err)
+	}
+	return mapAlert(created), nil
+}
+
+func (c *ShodanClient) ListAlerts(ctx context.Context) ([]*Alert, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	alerts, err := c.client.GetAlerts(ctx)
+	if err != nil {
+		return nil, mapAPIError(err)
+	}
+
+	out := make([]*Alert, 0, len(alerts))
+	for _, a := range alerts {
+		if a == nil {
+			continue
+		}
+		out = append(out, mapAlert(a))
+	}
+	return out, nil
+}
+
+func (c *ShodanClient) DeleteAlert(ctx context.Context, id string) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	ok, err := c.client.DeleteAlert(ctx, id)
+	if err != nil {
+		return mapAPIError(err)
+	}
+	if !ok {
+		return fmt.Errorf("shodan API error: delete alert failed")
+	}
+	return nil
+}
+
+func (c *ShodanClient) CVELookup(ctx context.Context, cve string) (*CVELookupResult, error) {
+	cve = strings.ToUpper(strings.TrimSpace(cve))
+	if cve == "" {
+		return nil, fmt.Errorf("invalid CVE")
+	}
+
+	hostCount, err := c.Count(ctx, "vuln:"+cve)
+	if err != nil {
+		return nil, err
+	}
+
+	search, err := c.searchExploitsWithCVSS(ctx, cve)
+	if err != nil {
+		return nil, err
+	}
+
+	var maxCVSS *float64
+	for _, m := range search.Matches {
+		if m == nil || m.CVSS == nil {
+			continue
+		}
+		if maxCVSS == nil || *m.CVSS > *maxCVSS {
+			v := *m.CVSS
+			maxCVSS = &v
+		}
+	}
+
+	return &CVELookupResult{
+		CVE:               cve,
+		AffectedHostCount: hostCount,
+		ExploitCount:      search.Total,
+		ExploitAvailable:  search.Total > 0,
+		CVSS:              maxCVSS,
+	}, nil
 }
 
 // hostResponse extends goshodan.Host to capture the tags field, which is
@@ -294,6 +409,74 @@ func normalizeTier(tier string) string {
 		return "paid"
 	}
 	return "free"
+}
+
+func (c *ShodanClient) currentTier() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.tier
+}
+
+func mapAlert(in *goshodan.Alert) *Alert {
+	out := &Alert{
+		ID:      in.ID,
+		Name:    in.Name,
+		Created: in.Created,
+		Expires: in.Expires,
+	}
+	if in.Filters != nil {
+		out.IPs = append([]string(nil), in.Filters.IP...)
+	}
+	return out
+}
+
+type exploitSearchWithCVSS struct {
+	Matches []*exploitMatchWithCVSS `json:"matches"`
+	Total   int                     `json:"total"`
+}
+
+type exploitMatchWithCVSS struct {
+	RawCVSS interface{} `json:"cvss"`
+	CVSS    *float64    `json:"-"`
+}
+
+func (c *ShodanClient) searchExploitsWithCVSS(ctx context.Context, query string) (*exploitSearchWithCVSS, error) {
+	// Bound exploit lookup latency while preserving any tighter parent deadline.
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	options := &goshodan.ExploitSearchOptions{Query: query, Page: 1}
+	req, err := c.client.NewExploitRequest(http.MethodGet, "/search", options, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var found exploitSearchWithCVSS
+	if err := c.client.Do(ctx, req, &found); err != nil {
+		return nil, mapAPIError(err)
+	}
+
+	for _, m := range found.Matches {
+		if m == nil {
+			continue
+		}
+		switch v := m.RawCVSS.(type) {
+		case float64:
+			val := v
+			m.CVSS = &val
+		case string:
+			parsed, perr := strconv.ParseFloat(strings.TrimSpace(v), 64)
+			if perr == nil {
+				m.CVSS = &parsed
+			} else {
+				m.CVSS = nil
+			}
+		default:
+			m.CVSS = nil
+		}
+	}
+
+	return &found, nil
 }
 
 func rateLimitDelay(tier string) time.Duration {
