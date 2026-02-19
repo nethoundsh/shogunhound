@@ -1,0 +1,14 @@
+[Unit]
+Description=shogunhound MCP Server
+After=network.target
+
+[Service]
+Type=simple
+User=mcpuser
+EnvironmentFile=/etc/shogunhound/env
+ExecStart=/usr/local/bin/shogunhound
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

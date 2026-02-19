@@ -1,0 +1,223 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
+	"github.com/nethoundsh/shogunhound/internal/cache"
+	"github.com/nethoundsh/shogunhound/internal/handler"
+	"github.com/nethoundsh/shogunhound/internal/shodan"
+)
+
+var version = "vdev"
+
+func main() {
+	if os.Getenv("SHODAN_API_KEY") == "" {
+		fmt.Fprintln(os.Stderr, "SHODAN_API_KEY not set; cannot query Shodan")
+		os.Exit(1)
+	}
+
+	_, _, h, err := initComponents()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	mcpServer := server.NewMCPServer("shogunhound", version)
+	mcpServer.AddTool(mcpTool(), h.HandleShodanIPQuery)
+	mcpServer.AddTool(countTool(), h.HandleShodanCount)
+	mcpServer.AddTool(searchTool(), h.HandleShodanSearch)
+	mcpServer.AddTool(dnsResolveTool(), h.HandleShodanDNSResolve)
+	mcpServer.AddTool(dnsReverseTool(), h.HandleShodanDNSReverse)
+	mcpServer.AddPrompt(
+		mcp.NewPrompt("investigate_ip",
+			mcp.WithPromptDescription("Step-by-step Shodan investigation workflow for a single public IP."),
+			mcp.WithArgument("ip",
+				mcp.ArgumentDescription("The public IPv4 or IPv6 address to investigate"),
+				mcp.RequiredArgument(),
+			),
+		),
+		func(ctx context.Context, req mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+			ip := req.Params.Arguments["ip"]
+			return mcp.NewGetPromptResult(
+				"Shodan IP investigation workflow",
+				[]mcp.PromptMessage{
+					{
+						Role: mcp.RoleUser,
+						Content: mcp.NewTextContent(fmt.Sprintf(`Investigate the IP address %s using the available Shodan tools. Follow this workflow:
+
+1. Call shodan_ip_query with ip=%s and format=markdown.
+2. Summarize the findings: organization, country, ASN, open ports, and services.
+3. If CVEs are listed, flag them explicitly with severity context.
+4. Check the Tags field. If tags include 'honeypot', note that this host is likely a decoy and should not be treated as a real target.
+   If tags include 'tor' or 'scanner', note the likely infrastructure type. If tags include 'cloud', confirm provider context with organization/ASN.
+5. Note any services that are unusual or high-risk (RDP, Telnet, exposed databases, admin panels).
+6. If banners are present, extract any version strings or software identifiers.
+7. Call shodan_dns_reverse with ips=%s to check for associated hostnames.
+8. Provide a one-paragraph threat assessment: is this a known cloud provider, a suspicious host, or something worth escalating?
+
+Be concise and actionable. Flag anything that warrants immediate follow-up.`, ip, ip, ip)),
+					},
+				},
+			), nil
+		},
+	)
+	mcpServer.AddPrompt(
+		mcp.NewPrompt("recon",
+			mcp.WithPromptDescription("Reconnaissance workflow: assess Shodan exposure for a query."),
+			mcp.WithArgument("query",
+				mcp.ArgumentDescription("Shodan search query (e.g. 'org:\"Acme Corp\"', 'asn:AS15169 port:22')"),
+				mcp.RequiredArgument(),
+			),
+		),
+		func(ctx context.Context, req mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+			query := req.Params.Arguments["query"]
+			return mcp.NewGetPromptResult(
+				"Shodan recon workflow",
+				[]mcp.PromptMessage{
+					{
+						Role: mcp.RoleUser,
+						Content: mcp.NewTextContent(fmt.Sprintf(`Run a Shodan reconnaissance assessment for the query: %s
+
+Follow this workflow:
+
+1. Call shodan_count with query="%s" to assess the scope.
+2. If the count is under 500, call shodan_search with the same query and format=markdown.
+   If the count is over 500, suggest 2-3 ways to refine the query before searching.
+3. From the search results, identify:
+   - The most common organizations and countries
+   - Ports and services that appear frequently
+   - Any hosts that stand out (unusual services, known-vulnerable versions)
+4. Select the 3 hosts most worth investigating further. Prioritize hosts that:
+   - Have CVEs listed (if visible in results)
+   - Are running high-risk services (RDP, Telnet, exposed databases on 3306/5432/27017/6379)
+   - Have unusual port combinations suggesting misconfiguration
+   - Are NOT tagged as honeypot or scanner
+   Call shodan_ip_query on each to get full details.
+5. Summarize the overall exposure: what is publicly visible, what is notable,
+   and what should be investigated further or remediated.`, query, query)),
+					},
+				},
+			), nil
+		},
+	)
+	if err := server.ServeStdio(mcpServer); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func initComponents() (*cache.Cache, *shodan.ShodanClient, *handler.ToolHandler, error) {
+	cachePath := envOrDefault("CACHE_PATH", "~/.shodan_cache.json")
+	logPath := envOrDefault("LOG_PATH", "~/shodan_queries.log")
+	apiKey := os.Getenv("SHODAN_API_KEY")
+
+	c, err := cache.New(cachePath)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	client := shodan.NewClient(apiKey, "free")
+	h, err := handler.New(c, client, logPath)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return c, client, h, nil
+}
+
+func mcpTool() mcp.Tool {
+	return mcp.NewTool("shodan_ip_query",
+		mcp.WithDescription("Queries Shodan for a single public IP: open ports, running services, banner data, "+
+			"organization, geolocation, and CVEs. Use this first when investigating a specific IP.\n\n"+
+			"Format guidance: use format=markdown for chat responses, format=json when chaining with other tools or scripts, format=pretty for plain-text summaries.\n\n"+
+			"After receiving results: flag any CVEs as high-priority findings. Note unexpected services (admin panels, databases, RDP, Telnet). "+
+			"Highlight the organization and ASN for attribution. If the result contains no services, the host may be unindexed — note this and suggest the user verify the IP is public and reachable.\n\n"+
+			"For ethical, authorized use only. Comply with Shodan Terms of Service: https://www.shodan.io/about/terms"),
+		mcp.WithString("ip",
+			mcp.Required(),
+			mcp.Description("Public IPv4 or IPv6 address to query")),
+		mcp.WithString("format",
+			mcp.Description("Output format: pretty (plain text), markdown, or json (default: pretty)")),
+		mcp.WithBoolean("history",
+			mcp.Description("Include historical banner data")),
+		mcp.WithBoolean("minify",
+			mcp.Description("Return lightweight response omitting banner strings")),
+		mcp.WithString("tier",
+			mcp.Description("Rate limit tier: free (1 req/s) or paid (10 req/s) (default: free)")),
+		mcp.WithBoolean("clear_cache",
+			mcp.Description("Evict cached result for this IP before querying")),
+		mcp.WithReadOnlyHintAnnotation(true),
+	)
+}
+
+func countTool() mcp.Tool {
+	return mcp.NewTool("shodan_count",
+		mcp.WithDescription("Returns the number of Shodan-indexed hosts matching a search query — no result details and no query credits consumed.\n\n"+
+			"Use before shodan_search to gauge scope and avoid unexpectedly large result sets. "+
+			"If the count exceeds ~500, suggest refining the query with additional filters "+
+			"(country:XX, org:\"name\", port:N, version:\"x.y\") before searching.\n\n"+
+			"Supports all Shodan search filters. Free tier compatible.\n"+
+			"For ethical, authorized use only."),
+		mcp.WithString("query",
+			mcp.Required(),
+			mcp.Description("Shodan search query (e.g. 'port:22 country:DE', 'vuln:CVE-2021-44228', 'asn:AS15169 nginx')")),
+		mcp.WithReadOnlyHintAnnotation(true),
+	)
+}
+
+func searchTool() mcp.Tool {
+	return mcp.NewTool("shodan_search",
+		mcp.WithDescription("Searches Shodan and returns matching hosts with IP, organization, country, and open ports. "+
+			"Use after shodan_count to confirm the result set is manageable. 100 results per page.\n\n"+
+			"Format guidance: format=markdown produces a table suitable for chat; format=json is best for downstream processing.\n\n"+
+			"After receiving results: look for repeated organizations, geographic clustering, and shared service versions. "+
+			"Flag hosts running unexpected or known-vulnerable services, then call shodan_ip_query for deeper host-level analysis.\n\n"+
+			"Requires a paid Shodan API key for most filtered queries.\n"+
+			"For ethical, authorized use only. Comply with Shodan Terms of Service: https://www.shodan.io/about/terms"),
+		mcp.WithString("query",
+			mcp.Required(),
+			mcp.Description("Shodan search query (e.g. 'port:22 country:DE', 'vuln:CVE-2021-44228 org:\"Acme Corp\"')")),
+		mcp.WithString("format",
+			mcp.Description("Output format: pretty, markdown, or json (default: pretty)")),
+		mcp.WithNumber("page",
+			mcp.Description("Result page number, 100 results per page (default: 1)")),
+		mcp.WithReadOnlyHintAnnotation(true),
+	)
+}
+
+func dnsResolveTool() mcp.Tool {
+	return mcp.NewTool("shodan_dns_resolve",
+		mcp.WithDescription("Resolves hostnames to IP addresses using Shodan's DNS database. Up to 100 hostnames per call.\n\n"+
+			"Use when given a domain instead of an IP: resolve first, then call shodan_ip_query on the result. "+
+			"Also useful for bulk resolution from threat intel feeds.\n\n"+
+			"If a hostname is not found in Shodan's database, try live DNS as a fallback."),
+		mcp.WithString("hostnames",
+			mcp.Required(),
+			mcp.Description("Comma-separated list of hostnames to resolve (e.g. 'google.com,cloudflare.com')")),
+		mcp.WithReadOnlyHintAnnotation(true),
+	)
+}
+
+func dnsReverseTool() mcp.Tool {
+	return mcp.NewTool("shodan_dns_reverse",
+		mcp.WithDescription("Looks up hostnames for IP addresses using Shodan's DNS database. "+
+			"Up to 100 IPs per call; public IPs only.\n\n"+
+			"Use to attribute suspicious IPs (CDN, cloud provider, VPN exit node, hosting company) or pivot from an IP to related domain infrastructure.\n\n"+
+			"Only indexed PTR data is returned — absence of results does not prove no hostname exists."),
+		mcp.WithString("ips",
+			mcp.Required(),
+			mcp.Description("Comma-separated list of public IPv4 or IPv6 addresses (e.g. '8.8.8.8,1.1.1.1')")),
+		mcp.WithReadOnlyHintAnnotation(true),
+	)
+}
+
+func envOrDefault(key, def string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return def
+}
