@@ -30,17 +30,10 @@ jobs:
           VERSION="${{ github.ref_name }}"
           for target in \
             "linux amd64" \
-            "linux arm64" \
-            "darwin amd64" \
-            "darwin arm64" \
-            "windows amd64"; do
+            "linux arm64"; do
             GOOS="$(echo "$target" | cut -d' ' -f1)"
             GOARCH="$(echo "$target" | cut -d' ' -f2)"
-            EXT=""
-            if [ "$GOOS" = "windows" ]; then
-              EXT=".exe"
-            fi
-            OUT="dist/shogunhound-${GOOS}-${GOARCH}${EXT}"
+            OUT="dist/shogunhound-${GOOS}-${GOARCH}"
             echo "Building ${OUT}"
             CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" \
               go build -ldflags "-X main.version=${VERSION}" -o "$OUT" ./cmd/server

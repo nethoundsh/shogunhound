@@ -112,12 +112,12 @@ The binary lives on the VPS. No open ports. No daemon to manage. The MCP client 
 
 ## Prerequisites
 
-- A VPS running Linux (Ubuntu 22.04+ or Debian 12+ recommended)
+- Linux (Ubuntu 22.04+ or Debian 12+ recommended) — **Linux only; macOS and Windows are not supported**
 - [Go 1.25+](https://go.dev/dl/)
 - A [Shodan API key](https://account.shodan.io/) (free tier works; 1 req/s rate limit applies)
 - `git`
 
-> **Alternative:** If you prefer not to install Go, you can run shogunhound via Docker. See [Docker installation](#docker) below. A Docker host and internet access to `ghcr.io` are the only requirements.
+> **Alternative:** If you prefer not to install Go, you can run shogunhound via Docker. See [Docker installation](#docker) below. A Docker host and internet access to `ghcr.io` are the only requirements. Docker is also the recommended path if you are on macOS or Windows and want to run the server locally for development.
 
 ---
 
@@ -309,7 +309,7 @@ Using the investigation prompts:
 
 ### MCP Server — Docker
 
-Docker is useful if you want to run shogunhound without installing Go, or if you are on macOS or Windows for local development.
+Docker is useful if you want to run shogunhound without installing Go, or if you are on macOS or Windows and want to run the server locally for development (pre-built binaries are Linux-only).
 
 shogunhound must run in **interactive stdin mode** (`-i` flag). The container receives MCP JSON-RPC calls over stdin and writes responses to stdout, just like the native binary.
 
