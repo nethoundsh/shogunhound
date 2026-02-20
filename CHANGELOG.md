@@ -5,6 +5,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-02-20
+
 ### Fixed
 
 - Replaced per-request post-call sleep pacing with a process-wide, context-aware token limiter to prevent free-tier overrun under bulk concurrency

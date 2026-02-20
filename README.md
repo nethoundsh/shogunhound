@@ -241,7 +241,7 @@ docker pull ghcr.io/nethoundsh/shogunhound:latest
 
 Available tags:
 - `latest` — most recent release
-- `v0.1.0`, `v0.1.1`, `v0.1.2`, `v0.1.3`, etc. — specific releases
+- `v0.1.0`, `v0.1.1`, `v0.1.2`, `v0.1.3`, `v0.1.5`, etc. — specific releases
 
 **Verify the image starts cleanly:**
 
@@ -583,7 +583,6 @@ If a request is valid but unavailable to your Shodan plan, shogunhound returns a
   "format": "markdown",
   "history": false,
   "minify": false,
-  "tier": "free",
   "clear_cache": false
 }
 ```
@@ -880,7 +879,6 @@ github.com -> 140.82.121.4
   "format": "markdown",
   "history": false,
   "minify": false,
-  "tier": "free",
   "clear_cache": false,
   "max_workers": 4
 }
