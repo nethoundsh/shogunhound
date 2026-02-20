@@ -1,10 +1,11 @@
 # shogunhound
+[![CI](https://github.com/nethoundsh/shogunhound/actions/workflows/ci.yml/badge.svg)](https://github.com/nethoundsh/shogunhound/actions/workflows/ci.yml)
 
 **Shodan host intelligence as an MCP tool.**
 
 shogunhound is an [MCP](https://modelcontextprotocol.io) server that gives LLM agents direct access to [Shodan's](https://shodan.io) host intelligence API. Query open ports, running services, banner data, geolocation, ASN, and known CVEs from inside a conversation — without switching to a browser or separate terminal.
 
-Built for security analysts working ransomware recovery, OSINT research, and incident response. Part of the [nethound.sh](https://nethound.sh) open-source toolchain.
+Built for security analysts working in ransomware recovery, OSINT research, and incident response. Part of the [nethound.sh](https://nethound.sh) open-source toolchain.
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -43,10 +44,33 @@ BANNERS
 
 ---
 
+## Quick start
+
+```bash
+# 1. Install
+git clone https://github.com/nethoundsh/shogunhound && cd shogunhound
+go build -o shogunhound ./cmd/server && sudo mv shogunhound /usr/local/bin/
+
+# 2. Configure
+export SHODAN_API_KEY="your_key_here"  # add to ~/.bashrc to persist
+
+# 3. Add to Claude Code
+claude mcp add --transport stdio --env SHODAN_API_KEY="${SHODAN_API_KEY}" \
+  shogunhound -- /usr/local/bin/shogunhound
+
+# 4. Query
+# In Claude Code: "What ports are open on 8.8.8.8?"
+```
+
+---
+
 ## Table of Contents
 
+- [Quick start](#quick-start)
 - [How It Works](#how-it-works)
 - [Use Cases](#use-cases)
+- [Workflow Examples](#workflow-examples)
+- [Versioning and Support Policy](#versioning-and-support-policy)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
   - [Build from Source](#build-from-source)
@@ -63,6 +87,7 @@ BANNERS
 - [Audit Logging](#audit-logging)
 - [Security](#security)
 - [Known Limitations](#known-limitations)
+- [Exit Codes](#exit-codes)
 - [Development](#development)
 - [Project Structure](#project-structure)
 - [Contributing](#contributing)
@@ -107,6 +132,51 @@ The binary lives on the VPS. No open ports. No daemon to manage. The MCP client 
 5. **Incident response triage**
   Reverse-resolve suspicious IPs, then profile their exposed services to prioritize escalation.
   - "Reverse DNS on `45.33.32.156`, then give me its full Shodan profile."
+
+---
+
+## Workflow Examples
+
+**IR triage**
+
+Prompt:
+"I have a suspicious IP from our firewall logs: `45.33.32.156`.
+Reverse-resolve it, then give me the full Shodan profile,
+and flag any CVEs."
+
+Typical chain:
+`shodan_dns_reverse` -> `shodan_ip_query` -> CVE-focused analyst summary
+
+**CVE exposure sweep**
+
+Prompt:
+"How many hosts are exposed to `CVE-2021-44228` (Log4Shell)?
+Is there a public exploit available?"
+
+Typical chain:
+`shodan_cve_lookup` -> host count + CVSS + exploit availability
+
+**Ransomware recovery bulk triage**
+
+Prompt:
+"Here are 8 public IPs from the victim network scope:
+`8.8.8.8, 1.1.1.1, 9.9.9.9, ...`
+Generate a markdown exposure report with CVE counts and top ports."
+
+Typical chain:
+`shodan_report` -> `## Shodan Exposure Report`
+
+---
+
+## Versioning and Support Policy
+
+shogunhound follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). For release history, see [`CHANGELOG.md`](CHANGELOG.md).
+
+Support policy:
+
+- The latest released version is supported with fixes.
+- Older releases may work but are not guaranteed to receive patches.
+- The server targets MCP stdio integrations and Go 1.25+.
 
 ---
 
@@ -200,7 +270,18 @@ chmod 600 ~/shodan_queries.log
 
 ## Usage
 
-### Future: HTTP/SSE Deployment
+### CLI flags
+
+shogunhound is MCP-first, but the binary exposes lightweight CLI flags for diagnostics:
+
+```bash
+shogunhound --help
+shogunhound --version
+```
+
+On normal startup (with `SHODAN_API_KEY` set), shogunhound prints a one-line self-check to `stderr` showing version, cache path, log path, and active tier. The API key is never printed.
+
+### Roadmap: HTTP/SSE Transport (Not Implemented)
 
 The `deploy/shogunhound.service` unit is included as an experimental future-facing asset. The current MVP is stdio-only, so this service file is not part of the supported runtime path yet.
 
@@ -1267,6 +1348,26 @@ chmod 600 ~/shodan_queries.log
 
 The primary (stdio) deployment model requires no open ports. The binary is invoked as a subprocess over your SSH session. There is no network listener to attack.
 
+### Threat Model and Security Considerations
+
+Trust boundaries:
+
+- **MCP client and local host:** trusted execution environment for the shogunhound subprocess.
+- **Shodan API over HTTPS:** external dependency; responses are treated as untrusted input and mapped to internal models.
+- **Cache and audit log files:** local sensitive artifacts that may contain investigation context.
+
+Design choices:
+
+- IP input validation blocks private/special-range queries before any API call.
+- No shell execution path is used for user-supplied IP or hostname input.
+- `SHODAN_API_KEY` is read from environment only and not persisted by the server.
+
+Operational guidance:
+
+- Keep `~/shodan_queries.log` and cache files restricted (`chmod 600`) and treat them as case data.
+- Prefer full-disk encryption or encrypted home directories on shared analyst infrastructure.
+- Review and rotate logs per engagement retention requirements.
+
 ---
 
 ## Known Limitations
@@ -1274,8 +1375,17 @@ The primary (stdio) deployment model requires no open ports. The binary is invok
 **Bulk query is summary-first.**
 `shodan_ip_query_bulk` optimizes for breadth and quick triage. For deep per-host analysis, follow up with `shodan_ip_query` on specific IPs.
 
-`**shodan_ip_query` requires IP addresses.**
+**`shodan_ip_query` requires IP addresses.**
 The `ip` parameter only accepts IPv4 or IPv6 addresses — not hostnames. Use `shodan_dns_resolve` to resolve a hostname to an IP first, then query it.
+
+---
+
+## Exit Codes
+
+| Code | Meaning |
+| ---- | ------- |
+| 0 | Clean exit (server stopped normally) |
+| 1 | Startup failure (missing API key, bad config, log file unwritable) |
 
 ---
 
@@ -1371,8 +1481,12 @@ shogunhound/
 ├── deploy/
 │   └── shogunhound.service      # systemd unit (for future HTTP/SSE deployment)
 ├── Dockerfile                   # Multi-stage distroless container build
-├── DESIGN.md                    # Full technical design document
-├── AGENTS.md                    # Implementation instructions (used during development)
+├── Makefile                     # Local build/test/lint/release-check helpers
+├── CHANGELOG.md                 # Release history and notable changes
+├── SECURITY.md                  # Vulnerability reporting and disclosure policy
+├── docs/
+│   ├── DESIGN.md                # Full technical design document
+│   └── AGENTS.md                # Implementation instructions used during development
 ├── go.mod
 └── go.sum
 ```
@@ -1389,7 +1503,7 @@ Contributions are welcome. Please open an issue before submitting a pull request
 - IPv6 end-to-end testing against the live Shodan API
 - Performance benchmarks for bulk query throughput under free vs paid tier rate limits
 
-See `DESIGN.md` for full architectural context and `AGENTS.md` for component-level implementation notes.
+See `docs/DESIGN.md` for full architectural context and `docs/AGENTS.md` for component-level implementation notes.
 
 ---
 

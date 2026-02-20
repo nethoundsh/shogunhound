@@ -16,10 +16,29 @@ import (
 var version = "vdev"
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "--version", "-version":
+			fmt.Println(version)
+			return
+		case "--help", "-h", "help":
+			printHelp()
+			return
+		}
+	}
+
 	if os.Getenv("SHODAN_API_KEY") == "" {
 		fmt.Fprintln(os.Stderr, "SHODAN_API_KEY not set; cannot query Shodan")
 		os.Exit(1)
 	}
+
+	cachePath := envOrDefault("CACHE_PATH", "~/.shodan_cache.json")
+	logPath := envOrDefault("LOG_PATH", "~/shodan_queries.log")
+	tier := "free"
+	if strings.EqualFold(os.Getenv("SHODAN_TIER"), "paid") {
+		tier = "paid"
+	}
+	fmt.Fprintf(os.Stderr, "shogunhound %s | cache: %s | log: %s | tier: %s\n", version, cachePath, logPath, tier)
 
 	_, _, h, err := initComponents()
 	if err != nil {
@@ -120,6 +139,23 @@ Follow this workflow:
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func printHelp() {
+	fmt.Printf(`shogunhound %s
+MCP stdio server for Shodan host intelligence.
+
+Usage:
+  shogunhound            Start MCP server over stdio
+  shogunhound --help     Show this help
+  shogunhound --version  Show version
+
+Environment:
+  SHODAN_API_KEY   Required; Shodan API key
+  SHODAN_TIER      Optional; "free" (default) or "paid"
+  CACHE_PATH       Optional; default "~/.shodan_cache.json"
+  LOG_PATH         Optional; default "~/shodan_queries.log"
+`, version)
 }
 
 func initComponents() (*cache.Cache, *shodan.ShodanClient, *handler.ToolHandler, error) {
