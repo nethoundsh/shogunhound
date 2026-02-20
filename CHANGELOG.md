@@ -5,6 +5,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-02-20
+
 ### Fixed
 
 - `formatTagsWithContext` now annotates `cloud` tags with provider-context guidance (was falling through to raw tag)

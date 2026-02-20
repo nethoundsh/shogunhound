@@ -241,7 +241,7 @@ docker pull ghcr.io/nethoundsh/shogunhound:latest
 
 Available tags:
 - `latest` — most recent release
-- `v0.1.0`, `v0.1.1`, `v0.1.2`, etc. — specific releases
+- `v0.1.0`, `v0.1.1`, `v0.1.2`, `v0.1.3`, etc. — specific releases
 
 **Verify the image starts cleanly:**
 
