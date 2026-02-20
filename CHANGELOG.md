@@ -5,6 +5,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- Replaced per-request post-call sleep pacing with a process-wide, context-aware token limiter to prevent free-tier overrun under bulk concurrency
+- Extended process-wide limiter coverage across Shodan API methods (`Count`, `Search`, DNS, alert APIs, and exploit search), not only host queries
+- Bulk/report worker paths now use shared startup tier pacing; backward-compatible `tier` parameters remain accepted but ignored
+- Markdown formatters now escape table-breaking characters (`|`) and collapse embedded newlines in rendered fields
+- Added RFC 3849 documentation IPv6 range (`2001:db8::/32`) to rejected non-public validation ranges
+- Removed unused `DefaultTier` and `currentTier` methods from `ShodanClient`
+
 ## [0.1.3] - 2026-02-20
 
 ### Fixed

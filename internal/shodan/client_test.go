@@ -157,37 +157,66 @@ func TestQueryHostMalformedJSON(t *testing.T) {
 	}
 }
 
-func TestQueryHostRespectsContextDuringRateLimitSleep(t *testing.T) {
+func TestRateLimiterWaitRespectsContext(t *testing.T) {
+	t.Parallel()
+
+	rl := newRateLimiter(250 * time.Millisecond)
+	<-rl.tokens // drain prefilled token so Wait must block
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := rl.Wait(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Wait() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestRateLimiterSerializesRequests(t *testing.T) {
+	t.Parallel()
+
+	interval := 20 * time.Millisecond
+	rl := newRateLimiter(interval)
+	<-rl.tokens // drain initial token
+
+	start := time.Now()
+	done := make(chan struct{}, 3)
+	for i := 0; i < 3; i++ {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			if err := rl.Wait(context.Background()); err != nil {
+				t.Errorf("Wait() error = %v", err)
+			}
+		}()
+	}
+	for i := 0; i < 3; i++ {
+		<-done
+	}
+	elapsed := time.Since(start)
+	if elapsed < 55*time.Millisecond {
+		t.Fatalf("expected serialized waits, elapsed=%v", elapsed)
+	}
+}
+
+func TestQueryHostContextCancelledDuringWait(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{
-			"ip_str":"8.8.8.8",
-			"ports":[53],
-			"hostnames":[]
-		}`))
+		_, _ = w.Write([]byte(`{"ip_str":"8.8.8.8","ports":[53]}`))
 	}))
 	defer server.Close()
 
 	client := NewClient("test-key", "paid")
 	client.client.BaseURL = server.URL
+	<-client.limiter.tokens // drain prefilled token so request waits on limiter
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 
-	start := time.Now()
-	result, err := client.QueryHost(ctx, "8.8.8.8", false, false)
-	elapsed := time.Since(start)
-
-	if err != nil {
-		t.Fatalf("expected successful result despite caller context timeout during sleep, got %v", err)
-	}
-	if result == nil || result.IP != "8.8.8.8" {
-		t.Fatalf("unexpected result: %+v", result)
-	}
-	if elapsed > 500*time.Millisecond {
-		t.Fatalf("query took too long; sleep handling is too slow: %v", elapsed)
+	_, err := client.QueryHost(ctx, "8.8.8.8", false, false)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("QueryHost() error = %v, want context.Canceled", err)
 	}
 }
 
@@ -230,7 +259,7 @@ func TestCountSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("test-key", "free")
+	client := NewClient("test-key", "paid")
 	client.client.BaseURL = server.URL
 
 	count, err := client.Count(context.Background(), "nginx")
@@ -280,7 +309,7 @@ func TestSearchSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("test-key", "free")
+	client := NewClient("test-key", "paid")
 	client.client.BaseURL = server.URL
 
 	result, err := client.Search(context.Background(), "port:443", 1)
@@ -308,7 +337,7 @@ func TestDNSResolveSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("test-key", "free")
+	client := NewClient("test-key", "paid")
 	client.client.BaseURL = server.URL
 
 	result, err := client.DNSResolve(context.Background(), []string{"google.com"})
@@ -333,7 +362,7 @@ func TestDNSReverseSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("test-key", "free")
+	client := NewClient("test-key", "paid")
 	client.client.BaseURL = server.URL
 
 	result, err := client.DNSReverse(context.Background(), []string{"8.8.8.8"})
@@ -348,7 +377,7 @@ func TestDNSReverseSuccess(t *testing.T) {
 func TestDNSReverseInvalidIP(t *testing.T) {
 	t.Parallel()
 
-	client := NewClient("test-key", "free")
+	client := NewClient("test-key", "paid")
 	_, err := client.DNSReverse(context.Background(), []string{"not-an-ip"})
 	if err == nil || !strings.Contains(err.Error(), "invalid IP address") {
 		t.Fatalf("expected invalid ip error, got: %v", err)

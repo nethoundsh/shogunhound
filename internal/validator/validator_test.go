@@ -13,6 +13,7 @@ func TestValidateIP(t *testing.T) {
 		{name: "public ipv4 google", input: "8.8.8.8", wantErr: false},
 		{name: "public ipv4 cloudflare", input: "1.1.1.1", wantErr: false},
 		{name: "public ipv6 google", input: "2001:4860:4860::8888", wantErr: false},
+		{name: "ipv6 documentation prefix rfc3849", input: "2001:db8::1", wantErr: true},
 		{name: "loopback ipv4", input: "127.0.0.1", wantErr: true},
 		{name: "loopback ipv6", input: "::1", wantErr: true},
 		{name: "private 10/8", input: "10.0.0.1", wantErr: true},

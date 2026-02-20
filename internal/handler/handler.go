@@ -443,8 +443,8 @@ func (h *ToolHandler) HandleShodanIPQueryBulk(
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
-	tier, err := optionalString(req.GetArguments(), "tier", "free")
-	if err != nil {
+	// Backward-compatible no-op: bulk pacing now follows server startup tier.
+	if _, err := optionalString(req.GetArguments(), "tier", "free"); err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 	clearCache, err := optionalBool(req.GetArguments(), "clear_cache", false)
@@ -467,7 +467,7 @@ func (h *ToolHandler) HandleShodanIPQueryBulk(
 	}
 
 	start := time.Now()
-	items := h.bulkLookup(ctx, ips, history, minify, clearCache, tier, maxWorkers)
+	items := h.bulkLookup(ctx, ips, history, minify, clearCache, maxWorkers)
 	duration := time.Since(start)
 	h.logBatchQuery("bulk", format, len(ips), summarizeBulk(items), duration, true, "")
 	return mcp.NewToolResultText(formatBulkOutput(items, format)), nil
@@ -498,7 +498,7 @@ func (h *ToolHandler) HandleShodanReport(
 	}
 
 	start := time.Now()
-	items := h.bulkLookup(ctx, ips, false, false, false, h.shodan.DefaultTier(), 4)
+	items := h.bulkLookup(ctx, ips, false, false, false, 4)
 	duration := time.Since(start)
 	h.logBatchQuery("report", format, len(ips), summarizeBulk(items), duration, true, "")
 	return mcp.NewToolResultText(formatReportOutput(items, format)), nil
@@ -517,7 +517,6 @@ func (h *ToolHandler) bulkLookup(
 	history bool,
 	minify bool,
 	clearCache bool,
-	tier string,
 	maxWorkers int,
 ) []*bulkResultItem {
 	items := make([]*bulkResultItem, len(ips))
@@ -531,7 +530,7 @@ func (h *ToolHandler) bulkLookup(
 	worker := func() {
 		defer wg.Done()
 		for j := range jobs {
-			items[j.index] = h.querySingleIP(ctx, j.ip, history, minify, clearCache, tier)
+			items[j.index] = h.querySingleIP(ctx, j.ip, history, minify, clearCache)
 		}
 	}
 
@@ -547,7 +546,7 @@ func (h *ToolHandler) bulkLookup(
 	return items
 }
 
-func (h *ToolHandler) querySingleIP(ctx context.Context, ip string, history, minify, clearCache bool, tier string) *bulkResultItem {
+func (h *ToolHandler) querySingleIP(ctx context.Context, ip string, history, minify, clearCache bool) *bulkResultItem {
 	if err := validator.ValidateIP(ip); err != nil {
 		return &bulkResultItem{IP: ip, Error: err.Error()}
 	}
@@ -559,7 +558,7 @@ func (h *ToolHandler) querySingleIP(ctx context.Context, ip string, history, min
 	if hit {
 		return &bulkResultItem{IP: ip, Result: result, Cached: true}
 	}
-	result, err := h.shodan.QueryHostWithTier(ctx, ip, history, minify, tier)
+	result, err := h.shodan.QueryHost(ctx, ip, history, minify)
 	if err != nil {
 		return &bulkResultItem{IP: ip, Error: humanizeError(ip, err)}
 	}

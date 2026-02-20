@@ -545,10 +545,10 @@ Use this as the quick decision matrix when selecting tools:
 | Tool | Free Tier Behavior | Paid/Plan Behavior | Typical Failure Message |
 | ---- | ------------------ | ------------------ | ----------------------- |
 | `shodan_count` | Works on common queries | Works; better throughput under paid pacing | `Shodan rate limit exceeded; wait 60 seconds and retry` |
-| `shodan_ip_query` | Works | Works with faster pacing when `tier=paid` | `Shodan authentication failed; check your API key` |
+| `shodan_ip_query` | Works | Works with server-level paid pacing (`SHODAN_TIER=paid`) | `Shodan authentication failed; check your API key` |
 | `shodan_search` | May be limited depending on Shodan plan/query | Intended primary mode for filtered searches | `Shodan authentication failed; check your API key` |
 | `shodan_dns_resolve` / `shodan_dns_reverse` | Works for indexed DNS data | Same behavior; higher request budgets may apply by plan | `Shodan rate limit exceeded; wait 60 seconds and retry` |
-| `shodan_ip_query_bulk` | Works; best for multi-IP triage | Works with faster pacing using `tier=paid` | `Shodan rate limit exceeded; wait 60 seconds and retry` |
+| `shodan_ip_query_bulk` | Works; pacing follows server startup tier | Works with faster server-level pacing when `SHODAN_TIER=paid` | `Shodan rate limit exceeded; wait 60 seconds and retry` |
 | `shodan_cve_lookup` | Works with plan-dependent dataset coverage | Works; same behavior with improved throughput characteristics by plan | `Shodan query timed out; try again` |
 | `shodan_report` | Works; markdown/json only | Works; uses server default tier pacing | `invalid parameter value: format must be markdown or json` |
 | `shodan_alert_*` | Usually unavailable | Requires Monitor-capable Shodan plan | `Shodan authentication failed; check your API key` or provider plan errors |
@@ -608,7 +608,7 @@ If a request is valid but unavailable to your Shodan plan, shogunhound returns a
 | `format`      | string  | No       | `pretty` | Output format: `pretty`, `markdown`, or `json` |
 | `history`     | boolean | No       | `false`  | Include historical banner data                 |
 | `minify`      | boolean | No       | `false`  | Omit banner strings from the response          |
-| `tier`        | string  | No       | `free`   | Rate limit tier: `free` or `paid`              |
+| `tier`        | string  | No       | `free`   | Deprecated compatibility field; per-request override is ignored |
 | `clear_cache` | boolean | No       | `false`  | Evict cached result before querying            |
 
 
@@ -907,9 +907,11 @@ github.com -> 140.82.121.4
 | `format`      | string  | No       | `pretty` | Output format: `pretty`, `markdown`, or `json`                   |
 | `history`     | boolean | No       | `false`  | Include historical banner data                                   |
 | `minify`      | boolean | No       | `false`  | Omit banner payloads                                             |
-| `tier`        | string  | No       | `free`   | Rate limit tier: `free` or `paid`                                |
+| `tier`        | string  | No       | `free`   | Deprecated compatibility field; bulk pacing uses server startup tier |
 | `clear_cache` | boolean | No       | `false`  | Evict each IP from cache before querying                         |
 | `max_workers` | number  | No       | `4`      | Concurrent workers (bounded to 1..10)                            |
+
+`max_workers` controls concurrency for validation/formatting throughput, but does not bypass client pacing. With free-tier startup pacing, requests are serialized to approximately 1 request/second process-wide.
 
 
 **Error responses** are returned as MCP tool errors with human-readable messages:
@@ -1313,6 +1315,7 @@ All inputs are validated before any API call is made. The following ranges are r
 | `169.254.0.0/16`, `fe80::/10`                       | —        | Link-local  |
 | `100.64.0.0/10`                                     | RFC 6598 | CGNAT       |
 | `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24` | RFC 5737 | TEST-NET    |
+| `2001:db8::/32`                                     | RFC 3849 | Documentation-only |
 | `240.0.0.0/4`                                       | RFC 1112 | Reserved    |
 
 

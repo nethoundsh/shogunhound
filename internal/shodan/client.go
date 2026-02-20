@@ -21,8 +21,9 @@ var (
 )
 
 type ShodanClient struct {
-	client *goshodan.Client
-	tier   string // "free" or "paid"
+	client  *goshodan.Client
+	tier    string // "free" or "paid"
+	limiter *rateLimiter
 }
 
 type SearchResult struct {
@@ -47,9 +48,11 @@ type CVELookupResult struct {
 }
 
 func NewClient(apiKey, tier string) *ShodanClient {
+	normalizedTier := normalizeTier(tier)
 	return &ShodanClient{
-		client: goshodan.NewClient(http.DefaultClient, apiKey),
-		tier:   normalizeTier(tier),
+		client:  goshodan.NewClient(http.DefaultClient, apiKey),
+		tier:    normalizedTier,
+		limiter: newRateLimiter(rateLimitInterval(normalizedTier)),
 	}
 }
 
@@ -62,7 +65,10 @@ func (c *ShodanClient) SetExploitBaseURL(baseURL string) {
 }
 
 func (c *ShodanClient) QueryHost(ctx context.Context, ip string, history, minify bool) (*ShodanHostResult, error) {
-	return c.QueryHostWithTier(ctx, ip, history, minify, c.currentTier())
+	if err := c.limiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+	return c.queryHost(ctx, ip, history, minify)
 }
 
 func (c *ShodanClient) QueryHostWithTier(
@@ -71,6 +77,12 @@ func (c *ShodanClient) QueryHostWithTier(
 	history, minify bool,
 	tier string,
 ) (*ShodanHostResult, error) {
+	// Backward-compatible shim: pacing is process-wide and uses the startup tier.
+	_ = tier
+	return c.QueryHost(ctx, ip, history, minify)
+}
+
+func (c *ShodanClient) queryHost(ctx context.Context, ip string, history, minify bool) (*ShodanHostResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 
@@ -88,20 +100,14 @@ func (c *ShodanClient) QueryHostWithTier(
 		return nil, mapAPIError(err)
 	}
 
-	result := mapHostToResult(&host.Host, host.Tags, minify)
-
-	delay := rateLimitDelay(tier)
-	sleepCtx, sleepCancel := context.WithTimeout(context.Background(), delay+200*time.Millisecond)
-	defer sleepCancel()
-	if err := sleepWithContext(sleepCtx, delay); err != nil {
-		// A sleep interruption (e.g., process shutdown) does not invalidate the fetched result.
-		return result, nil
-	}
-
-	return result, nil
+	return mapHostToResult(&host.Host, host.Tags, minify), nil
 }
 
 func (c *ShodanClient) Count(ctx context.Context, query string) (int, error) {
+	if err := c.limiter.Wait(ctx); err != nil {
+		return 0, err
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -114,6 +120,10 @@ func (c *ShodanClient) Count(ctx context.Context, query string) (int, error) {
 }
 
 func (c *ShodanClient) Search(ctx context.Context, query string, page int) (*SearchResult, error) {
+	if err := c.limiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
@@ -141,6 +151,10 @@ func (c *ShodanClient) Search(ctx context.Context, query string, page int) (*Sea
 }
 
 func (c *ShodanClient) DNSResolve(ctx context.Context, hostnames []string) (map[string]string, error) {
+	if err := c.limiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -162,6 +176,10 @@ func (c *ShodanClient) DNSResolve(ctx context.Context, hostnames []string) (map[
 }
 
 func (c *ShodanClient) DNSReverse(ctx context.Context, ips []string) (map[string][]string, error) {
+	if err := c.limiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -192,6 +210,10 @@ func (c *ShodanClient) DNSReverse(ctx context.Context, ips []string) (map[string
 }
 
 func (c *ShodanClient) CreateAlert(ctx context.Context, name string, ipOrCIDRs []string, expires int) (*Alert, error) {
+	if err := c.limiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -203,6 +225,10 @@ func (c *ShodanClient) CreateAlert(ctx context.Context, name string, ipOrCIDRs [
 }
 
 func (c *ShodanClient) ListAlerts(ctx context.Context) ([]*Alert, error) {
+	if err := c.limiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -222,6 +248,10 @@ func (c *ShodanClient) ListAlerts(ctx context.Context) ([]*Alert, error) {
 }
 
 func (c *ShodanClient) DeleteAlert(ctx context.Context, id string) error {
+	if err := c.limiter.Wait(ctx); err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -408,14 +438,6 @@ func normalizeTier(tier string) string {
 	return "free"
 }
 
-func (c *ShodanClient) currentTier() string {
-	return c.tier
-}
-
-func (c *ShodanClient) DefaultTier() string {
-	return c.currentTier()
-}
-
 func mapAlert(in *goshodan.Alert) *Alert {
 	out := &Alert{
 		ID:      in.ID,
@@ -440,6 +462,10 @@ type exploitMatchWithCVSS struct {
 }
 
 func (c *ShodanClient) searchExploitsWithCVSS(ctx context.Context, query string) (*exploitSearchWithCVSS, error) {
+	if err := c.limiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+
 	// Bound exploit lookup latency while preserving any tighter parent deadline.
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -478,21 +504,40 @@ func (c *ShodanClient) searchExploitsWithCVSS(ctx context.Context, query string)
 	return &found, nil
 }
 
-func rateLimitDelay(tier string) time.Duration {
+func rateLimitInterval(tier string) time.Duration {
 	if normalizeTier(tier) == "paid" {
 		return 100 * time.Millisecond
 	}
 	return 1000 * time.Millisecond
 }
 
-func sleepWithContext(ctx context.Context, delay time.Duration) error {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
+// rateLimiter is a process-wide token-bucket limiter with a prefilled token
+// so the first request is immediate.
+type rateLimiter struct {
+	tokens chan struct{}
+}
 
+func newRateLimiter(interval time.Duration) *rateLimiter {
+	rl := &rateLimiter{tokens: make(chan struct{}, 1)}
+	rl.tokens <- struct{}{}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			select {
+			case rl.tokens <- struct{}{}:
+			default:
+			}
+		}
+	}()
+	return rl
+}
+
+func (rl *rateLimiter) Wait(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-timer.C:
+	case <-rl.tokens:
 		return nil
 	}
 }

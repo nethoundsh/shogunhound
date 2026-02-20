@@ -13,6 +13,7 @@ func init() {
 		"192.0.2.0/24",    // TEST-NET-1 RFC 5737
 		"198.51.100.0/24", // TEST-NET-2 RFC 5737
 		"203.0.113.0/24",  // TEST-NET-3 RFC 5737
+		"2001:db8::/32",   // Documentation prefix RFC 3849
 		"240.0.0.0/4",     // Reserved RFC 1112
 	}
 

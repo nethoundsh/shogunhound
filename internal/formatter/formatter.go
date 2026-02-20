@@ -182,11 +182,11 @@ func formatMarkdown(result *shodan.ShodanHostResult) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "## Shodan Host Intelligence — %s\n\n", valueOr(result.IP, "(unknown)"))
-	fmt.Fprintf(&b, "**Organization:** %s | **ISP:** %s | **ASN:** %s\n", valueOr(result.Organization, "(unknown)"), valueOr(result.ISP, "(unknown)"), valueOr(result.ASN, "(unknown)"))
-	fmt.Fprintf(&b, "**Country:** %s | **City:** %s\n", valueOr(result.Country, "(unknown)"), valueOr(result.City, "(unknown)"))
-	fmt.Fprintf(&b, "**OS:** %s | **Last Seen:** %s\n", valueOr(result.OS, "(unknown)"), dateWithAge(result.LastSeen))
-	fmt.Fprintf(&b, "**Hostnames:** %s\n", joinOr(result.Hostnames, "(none)"))
-	fmt.Fprintf(&b, "**Tags:** %s\n\n", formatTagsWithContext(result.Tags))
+	fmt.Fprintf(&b, "**Organization:** %s | **ISP:** %s | **ASN:** %s\n", mdEscape(valueOr(result.Organization, "(unknown)")), mdEscape(valueOr(result.ISP, "(unknown)")), mdEscape(valueOr(result.ASN, "(unknown)")))
+	fmt.Fprintf(&b, "**Country:** %s | **City:** %s\n", mdEscape(valueOr(result.Country, "(unknown)")), mdEscape(valueOr(result.City, "(unknown)")))
+	fmt.Fprintf(&b, "**OS:** %s | **Last Seen:** %s\n", mdEscape(valueOr(result.OS, "(unknown)")), dateWithAge(result.LastSeen))
+	fmt.Fprintf(&b, "**Hostnames:** %s\n", mdEscape(joinOr(result.Hostnames, "(none)")))
+	fmt.Fprintf(&b, "**Tags:** %s\n\n", mdEscape(formatTagsWithContext(result.Tags)))
 
 	fmt.Fprintf(&b, "### Vulnerabilities\n\n")
 	if len(result.Vulnerabilities) == 0 {
@@ -212,7 +212,7 @@ func formatMarkdown(result *shodan.ShodanHostResult) string {
 			if len(service.CPE) > 0 {
 				productVersion += " [" + strings.Join(service.CPE, ", ") + "]"
 			}
-			fmt.Fprintf(&b, "| %d | %s | %s | %s |\n", service.Port, valueOr(service.Transport, "tcp"), valueOr(strings.TrimSpace(service.Module), "—"), productVersion)
+			fmt.Fprintf(&b, "| %d | %s | %s | %s |\n", service.Port, mdEscape(valueOr(service.Transport, "tcp")), mdEscape(valueOr(strings.TrimSpace(service.Module), "—")), mdEscape(productVersion))
 		}
 	}
 
@@ -223,7 +223,7 @@ func formatMarkdown(result *shodan.ShodanHostResult) string {
 			if i > 0 {
 				fmt.Fprintf(&b, "\n")
 			}
-			fmt.Fprintf(&b, "**Port %d:** %s\n", banner.port, banner.text)
+			fmt.Fprintf(&b, "**Port %d:** %s\n", banner.port, mdEscape(banner.text))
 		}
 	}
 
@@ -262,12 +262,7 @@ func formatSearchResultMarkdown(result *shodan.SearchResult) string {
 		if match == nil {
 			continue
 		}
-		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n",
-			valueOr(match.IP, "(unknown)"),
-			valueOr(match.Organization, "(unknown)"),
-			valueOr(match.Country, "(unknown)"),
-			joinPorts(match.Ports),
-		)
+		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", mdEscape(valueOr(match.IP, "(unknown)")), mdEscape(valueOr(match.Organization, "(unknown)")), mdEscape(valueOr(match.Country, "(unknown)")), mdEscape(joinPorts(match.Ports)))
 	}
 
 	return b.String()
@@ -283,6 +278,14 @@ func joinPorts(ports []int) string {
 		out = append(out, strconv.Itoa(p))
 	}
 	return strings.Join(out, ", ")
+}
+
+// mdEscape sanitizes a value for safe Markdown table cell interpolation.
+func mdEscape(s string) string {
+	s = strings.ReplaceAll(s, "|", `\|`)
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", "")
+	return s
 }
 
 func dateWithAge(ts time.Time) string {

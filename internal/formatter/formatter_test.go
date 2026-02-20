@@ -95,7 +95,8 @@ func TestFormatJSONNilReturnsObject(t *testing.T) {
 func TestFormatMarkdownWithCVEs(t *testing.T) {
 	result := &shodan.ShodanHostResult{
 		IP:              "8.8.8.8",
-		Organization:    "Google LLC",
+		Organization:    "Google|LLC",
+		OS:              "Linux\n5.x",
 		Vulnerabilities: []string{"CVE-2021-44228", "CVE-2024-0001"},
 		Services: []shodan.ServiceRecord{
 			{Port: 443, Transport: "tcp", Module: "https", Product: "nginx", Version: "1.25.0"},
@@ -106,6 +107,12 @@ func TestFormatMarkdownWithCVEs(t *testing.T) {
 	out := Format(result, "markdown")
 	if !strings.Contains(out, "## Shodan Host Intelligence") {
 		t.Fatalf("missing markdown header: %q", out)
+	}
+	if !strings.Contains(out, "Google\\|LLC") {
+		t.Fatalf("expected markdown-escaped org, got: %q", out)
+	}
+	if !strings.Contains(out, "Linux 5.x") {
+		t.Fatalf("expected newline-collapsed OS text, got: %q", out)
 	}
 	if !strings.Contains(out, "CVE-2021-44228") {
 		t.Fatalf("missing CVE: %q", out)
@@ -129,7 +136,7 @@ func TestFormatSearchResultPrettyMarkdownJSON(t *testing.T) {
 		Matches: []*shodan.ShodanHostResult{
 			{
 				IP:           "8.8.8.8",
-				Organization: "Google LLC",
+				Organization: "Pipe|Corp",
 				Country:      "United States",
 				Ports:        []int{53, 443},
 			},
@@ -151,7 +158,7 @@ func TestFormatSearchResultPrettyMarkdownJSON(t *testing.T) {
 	if !strings.Contains(markdown, "| IP | Organization | Country | Ports |") {
 		t.Fatalf("expected markdown table header, got: %q", markdown)
 	}
-	if !strings.Contains(markdown, "| 8.8.8.8 | Google LLC | United States | 53, 443 |") {
+	if !strings.Contains(markdown, "| 8.8.8.8 | Pipe\\|Corp | United States | 53, 443 |") {
 		t.Fatalf("expected markdown row, got: %q", markdown)
 	}
 
