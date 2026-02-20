@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -16,9 +15,9 @@ func (h *ToolHandler) HandleShodanIPQuery(
 	ctx context.Context,
 	req mcp.CallToolRequest,
 ) (*mcp.CallToolResult, error) {
-	ip, ok := req.GetArguments()["ip"].(string)
-	if !ok || strings.TrimSpace(ip) == "" {
-		return mcp.NewToolResultError("missing required parameter: ip"), nil
+	ip, err := requireString(req.GetArguments(), "ip")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	format, err := optionalString(req.GetArguments(), "format", "pretty")
@@ -83,9 +82,9 @@ func (h *ToolHandler) HandleShodanCount(
 	ctx context.Context,
 	req mcp.CallToolRequest,
 ) (*mcp.CallToolResult, error) {
-	query, ok := req.GetArguments()["query"].(string)
-	if !ok || strings.TrimSpace(query) == "" {
-		return mcp.NewToolResultError("missing required parameter: query"), nil
+	query, err := requireString(req.GetArguments(), "query")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	count, err := h.shodan.Count(ctx, query)
@@ -102,9 +101,9 @@ func (h *ToolHandler) HandleShodanSearch(
 	ctx context.Context,
 	req mcp.CallToolRequest,
 ) (*mcp.CallToolResult, error) {
-	query, ok := req.GetArguments()["query"].(string)
-	if !ok || strings.TrimSpace(query) == "" {
-		return mcp.NewToolResultError("missing required parameter: query"), nil
+	query, err := requireString(req.GetArguments(), "query")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	format, err := optionalString(req.GetArguments(), "format", "pretty")
@@ -112,16 +111,9 @@ func (h *ToolHandler) HandleShodanSearch(
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	page := 1
-	switch p := req.GetArguments()["page"].(type) {
-	case float64:
-		if p >= 1 {
-			page = int(p)
-		}
-	case int:
-		if p >= 1 {
-			page = p
-		}
+	page, err := optionalIntBounded(req.GetArguments(), "page", 1, 1, 1000)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	result, err := h.shodan.Search(ctx, query, page)
@@ -138,9 +130,9 @@ func (h *ToolHandler) HandleShodanCVELookup(
 	ctx context.Context,
 	req mcp.CallToolRequest,
 ) (*mcp.CallToolResult, error) {
-	cve, ok := req.GetArguments()["cve"].(string)
-	if !ok || strings.TrimSpace(cve) == "" {
-		return mcp.NewToolResultError("missing required parameter: cve"), nil
+	cve, err := requireString(req.GetArguments(), "cve")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	result, err := h.shodan.CVELookup(ctx, cve)

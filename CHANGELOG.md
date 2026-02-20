@@ -5,6 +5,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-02-20
+
+### Added
+
+- `docs/ARCHITECTURE.md`: compact request-flow diagram, trust boundary table, rate-limiting, logging, and cache lifecycle reference
+
+### Changed
+
+- CONTRIBUTING.md: expanded "Before opening a PR" section with `make release-check` in the quality gate, a PR checklist, and a release checklist section
+- `docs/DESIGN.md`: split version field into separate document revision and software version; added Section 15 roadmap (non-committed items)
+- Shared param-parsing helpers (`requireString`, `optionalEnum`, `optionalIntBounded`) replace inline copy-pasted extraction across all handlers
+
+### Fixed
+
+- `formatReportOutput` now applies markdown escaping to org names and error strings, preventing rendering breakage when org strings contain backticks, pipes, underscores, or asterisks
+- Port sort in `formatReportOutput` uses port number as a tie-breaker for deterministic output when two ports have equal host frequency
+
 ## [0.1.5] - 2026-02-20
 
 ### Fixed

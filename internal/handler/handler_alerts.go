@@ -13,13 +13,13 @@ func (h *ToolHandler) HandleShodanAlertCreate(
 	ctx context.Context,
 	req mcp.CallToolRequest,
 ) (*mcp.CallToolResult, error) {
-	name, ok := req.GetArguments()["name"].(string)
-	if !ok || strings.TrimSpace(name) == "" {
-		return mcp.NewToolResultError("missing required parameter: name"), nil
+	name, err := requireString(req.GetArguments(), "name")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
-	rawTargets, ok := req.GetArguments()["targets"].(string)
-	if !ok || strings.TrimSpace(rawTargets) == "" {
-		return mcp.NewToolResultError("missing required parameter: targets"), nil
+	rawTargets, err := requireString(req.GetArguments(), "targets")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	targets := splitCSVOrLines(rawTargets)

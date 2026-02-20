@@ -3,7 +3,8 @@
 | Field | Value |
 |---|---|
 | Status | Active |
-| Version | v4.0 |
+| Document revision | 4 |
+| Software version | v0.1.5 |
 | Last Updated | 2026-02-19 |
 | Last Verified Against | code on `main` |
 | Repository | `github.com/nethoundsh/shogunhound` |
@@ -164,3 +165,12 @@ Artifacts:
 - autonomous offensive actions
 - persistent database backend beyond local file cache
 - distributed rate limiting across multiple server processes
+
+## 15) Roadmap (not committed)
+
+Items under consideration but not scheduled:
+
+- OCI image labels (source/revision/version) in Docker builds
+- Image or binary signing if adoption grows
+- Structured internal error taxonomy (`ErrBadParam`, `ErrTierUnsupported`) for consistent machine-readable codes
+- Additional Shodan API endpoints as analyst workflows require

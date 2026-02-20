@@ -241,7 +241,7 @@ docker pull ghcr.io/nethoundsh/shogunhound:latest
 
 Available tags:
 - `latest` — most recent release
-- `v0.1.0`, `v0.1.1`, `v0.1.2`, `v0.1.3`, `v0.1.5`, etc. — specific releases
+- `v0.1.0`, `v0.1.1`, `v0.1.2`, `v0.1.3`, `v0.1.5`, `v0.1.6`, etc. — specific releases
 
 **Verify the image starts cleanly:**
 
@@ -550,7 +550,7 @@ Use this as the quick decision matrix when selecting tools:
 | `shodan_dns_resolve` / `shodan_dns_reverse` | Works for indexed DNS data | Same behavior; higher request budgets may apply by plan | `Shodan rate limit exceeded; wait 60 seconds and retry` |
 | `shodan_ip_query_bulk` | Works; pacing follows server startup tier | Works with faster server-level pacing when `SHODAN_TIER=paid` | `Shodan rate limit exceeded; wait 60 seconds and retry` |
 | `shodan_cve_lookup` | Works with plan-dependent dataset coverage | Works; same behavior with improved throughput characteristics by plan | `Shodan query timed out; try again` |
-| `shodan_report` | Works; markdown/json only | Works; uses server default tier pacing | `invalid parameter value: format must be markdown or json` |
+| `shodan_report` | Works; markdown/json only | Works; uses server default tier pacing | `invalid parameter value: format must be one of: markdown, json` |
 | `shodan_alert_*` | Usually unavailable | Requires Monitor-capable Shodan plan | `Shodan authentication failed; check your API key` or provider plan errors |
 
 If a request is valid but unavailable to your Shodan plan, shogunhound returns a human-readable MCP error and does not crash.
@@ -1191,7 +1191,7 @@ Alert deleted
 | -------------------------------- | --------------------------------------------------------------------------- |
 | Missing or empty IP list         | `missing required parameter: ips` or `ips must contain at least one entry`  |
 | Too many IPs                     | `ips must not exceed 100 entries`                                           |
-| Invalid format                  | `invalid parameter value: format must be markdown or json`                  |
+| Invalid format                  | `invalid parameter value: format must be one of: markdown, json`            |
 | Invalid or private IP (per-host) | Appears inline in the Host Details section; does not abort the whole report |
 
 
@@ -1583,6 +1583,7 @@ shogunhound/
 ├── CONTRIBUTING.md              # Contributor setup and contribution workflow
 ├── SECURITY.md                  # Vulnerability reporting and disclosure policy
 ├── docs/
+│   ├── ARCHITECTURE.md          # Compact request flow and trust boundary reference
 │   └── DESIGN.md                # Full technical design document
 ├── go.mod
 └── go.sum

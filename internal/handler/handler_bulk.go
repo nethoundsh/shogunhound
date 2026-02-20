@@ -19,9 +19,9 @@ func (h *ToolHandler) HandleShodanIPQueryBulk(
 	ctx context.Context,
 	req mcp.CallToolRequest,
 ) (*mcp.CallToolResult, error) {
-	raw, ok := req.GetArguments()["ips"].(string)
-	if !ok || strings.TrimSpace(raw) == "" {
-		return mcp.NewToolResultError("missing required parameter: ips"), nil
+	raw, err := requireString(req.GetArguments(), "ips")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 	ips := splitCSVOrLines(raw)
 	if len(ips) == 0 {
@@ -52,18 +52,9 @@ func (h *ToolHandler) HandleShodanIPQueryBulk(
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	maxWorkers := 4
-	switch v := req.GetArguments()["max_workers"].(type) {
-	case float64:
-		maxWorkers = int(v)
-	case int:
-		maxWorkers = v
-	}
-	if maxWorkers < 1 {
-		maxWorkers = 1
-	}
-	if maxWorkers > 10 {
-		maxWorkers = 10
+	maxWorkers, err := optionalIntBounded(req.GetArguments(), "max_workers", 4, 1, 10)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	start := time.Now()
@@ -77,9 +68,9 @@ func (h *ToolHandler) HandleShodanReport(
 	ctx context.Context,
 	req mcp.CallToolRequest,
 ) (*mcp.CallToolResult, error) {
-	raw, ok := req.GetArguments()["ips"].(string)
-	if !ok || strings.TrimSpace(raw) == "" {
-		return mcp.NewToolResultError("missing required parameter: ips"), nil
+	raw, err := requireString(req.GetArguments(), "ips")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 	ips := splitCSVOrLines(raw)
 	if len(ips) == 0 {
@@ -89,12 +80,9 @@ func (h *ToolHandler) HandleShodanReport(
 		return mcp.NewToolResultError("ips must not exceed 100 entries"), nil
 	}
 
-	format, err := optionalString(req.GetArguments(), "format", "markdown")
+	format, err := optionalEnum(req.GetArguments(), "format", "markdown", "markdown", "json")
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
-	}
-	if format != "markdown" && format != "json" {
-		return mcp.NewToolResultError("invalid parameter value: format must be markdown or json"), nil
 	}
 
 	start := time.Now()
@@ -323,7 +311,12 @@ func formatReportOutput(items []*bulkResultItem, format string) string {
 	for port, count := range serviceFrequency {
 		ports = append(ports, pf{port: port, count: count})
 	}
-	sort.Slice(ports, func(i, j int) bool { return ports[i].count > ports[j].count })
+	sort.Slice(ports, func(i, j int) bool {
+		if ports[i].count != ports[j].count {
+			return ports[i].count > ports[j].count
+		}
+		return ports[i].port < ports[j].port
+	})
 	if len(ports) > 0 {
 		fmt.Fprintf(&b, "### Top Ports\n\n")
 		for _, p := range ports {
@@ -338,7 +331,7 @@ func formatReportOutput(items []*bulkResultItem, format string) string {
 			continue
 		}
 		if item.Error != "" {
-			fmt.Fprintf(&b, "- `%s`: error: %s\n", item.IP, item.Error)
+			fmt.Fprintf(&b, "- `%s`: error: %s\n", item.IP, escapeMD(item.Error))
 			continue
 		}
 		org := "(unknown)"
@@ -349,7 +342,7 @@ func formatReportOutput(items []*bulkResultItem, format string) string {
 			portsText = joinIntCSV(item.Result.Ports)
 			cves = len(item.Result.Vulnerabilities)
 		}
-		fmt.Fprintf(&b, "- `%s`: org=%s ports=%s cves=%d\n", item.IP, org, portsText, cves)
+		fmt.Fprintf(&b, "- `%s`: org=%s ports=%s cves=%d\n", item.IP, escapeMD(org), portsText, cves)
 	}
 	return b.String()
 }

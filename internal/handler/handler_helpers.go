@@ -19,6 +19,18 @@ func valueOr(value, fallback string) string {
 	return value
 }
 
+// escapeMD escapes characters that break inline markdown formatting.
+func escapeMD(s string) string {
+	r := strings.NewReplacer(
+		`\`, `\\`,
+		"`", "\\`",
+		"*", `\*`,
+		"_", `\_`,
+		"|", `\|`,
+	)
+	return r.Replace(s)
+}
+
 func (h *ToolHandler) logQuery(ip, format string, cacheHit bool, duration time.Duration, success bool, errMsg string) {
 	if h.logger == nil {
 		return
@@ -107,6 +119,53 @@ func optionalBool(args map[string]any, key string, def bool) (bool, error) {
 		return false, fmt.Errorf("invalid parameter type: %s", key)
 	}
 	return b, nil
+}
+
+// requireString extracts a required string argument.
+func requireString(args map[string]any, key string) (string, error) {
+	v, ok := args[key].(string)
+	if !ok || strings.TrimSpace(v) == "" {
+		return "", fmt.Errorf("missing required parameter: %s", key)
+	}
+	return v, nil
+}
+
+// optionalEnum extracts an optional string constrained to an allowed set.
+func optionalEnum(args map[string]any, key, def string, allowed ...string) (string, error) {
+	v, err := optionalString(args, key, def)
+	if err != nil {
+		return "", err
+	}
+	for _, a := range allowed {
+		if v == a {
+			return v, nil
+		}
+	}
+	return "", fmt.Errorf("invalid parameter value: %s must be one of: %s", key, strings.Join(allowed, ", "))
+}
+
+// optionalIntBounded extracts an optional integer clamped to [minVal, maxVal].
+func optionalIntBounded(args map[string]any, key string, def, minVal, maxVal int) (int, error) {
+	v, ok := args[key]
+	if !ok {
+		return def, nil
+	}
+	var n int
+	switch val := v.(type) {
+	case float64:
+		n = int(val)
+	case int:
+		n = val
+	default:
+		return 0, fmt.Errorf("invalid parameter type: %s", key)
+	}
+	if n < minVal {
+		n = minVal
+	}
+	if n > maxVal {
+		n = maxVal
+	}
+	return n, nil
 }
 
 func resolvePath(path string) (string, error) {

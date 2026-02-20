@@ -13,9 +13,9 @@ func (h *ToolHandler) HandleShodanDNSResolve(
 	ctx context.Context,
 	req mcp.CallToolRequest,
 ) (*mcp.CallToolResult, error) {
-	raw, ok := req.GetArguments()["hostnames"].(string)
-	if !ok || strings.TrimSpace(raw) == "" {
-		return mcp.NewToolResultError("missing required parameter: hostnames"), nil
+	raw, err := requireString(req.GetArguments(), "hostnames")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	hostnames := splitAndTrim(raw)
@@ -49,9 +49,9 @@ func (h *ToolHandler) HandleShodanDNSReverse(
 	ctx context.Context,
 	req mcp.CallToolRequest,
 ) (*mcp.CallToolResult, error) {
-	raw, ok := req.GetArguments()["ips"].(string)
-	if !ok || strings.TrimSpace(raw) == "" {
-		return mcp.NewToolResultError("missing required parameter: ips"), nil
+	raw, err := requireString(req.GetArguments(), "ips")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	ips := splitAndTrim(raw)
