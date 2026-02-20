@@ -46,5 +46,4 @@ jobs:
       - name: golangci-lint (govet + staticcheck)
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.4.0  # first release with Go 1.25 support; v1.x series ended at v1.64.8 (Go 1.24 only)
-          args: --timeout=5m --enable=govet --enable=staticcheck
+          version: v2.4.0
