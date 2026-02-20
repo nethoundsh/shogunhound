@@ -415,11 +415,11 @@ func TestCVELookup(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/shodan/host/count":
+		switch r.URL.Path {
+		case "/shodan/host/count":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"total": 123}`))
-		case r.URL.Path == "/search":
+		case "/search":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{
 				"total": 2,
