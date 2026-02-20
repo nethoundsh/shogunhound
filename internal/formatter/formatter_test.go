@@ -180,6 +180,7 @@ func TestFormatTagsWithContext(t *testing.T) {
 		{name: "honeypot", input: []string{"honeypot"}, contains: "treat as decoy"},
 		{name: "tor", input: []string{"tor"}, contains: "Tor exit/relay node"},
 		{name: "scanner", input: []string{"scanner"}, contains: "known scanning infrastructure"},
+		{name: "cloud", input: []string{"cloud"}, contains: "confirm provider context"},
 		{name: "unknown", input: []string{"custom-tag"}, contains: "custom-tag"},
 	}
 
@@ -255,6 +256,9 @@ func TestFormatSearchResultNil(t *testing.T) {
 	t.Parallel()
 	if got := FormatSearchResult(nil, "pretty"); got != "" {
 		t.Fatalf("FormatSearchResult(nil) = %q, want empty", got)
+	}
+	if got := FormatSearchResult(nil, "json"); got != "{}" {
+		t.Fatalf("FormatSearchResult(nil, json) = %q, want {}", got)
 	}
 }
 

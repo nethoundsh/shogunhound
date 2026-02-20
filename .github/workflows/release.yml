@@ -23,7 +23,13 @@ jobs:
         with:
           go-version: stable
 
-      - name: Build multi-platform binaries
+      - name: Run tests
+        run: go test ./...
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Build Linux release binaries
         run: |
           set -euo pipefail
           mkdir -p dist

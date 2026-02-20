@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	goshodan "github.com/ns3777k/go-shodan/v4/shodan"
@@ -24,7 +23,6 @@ var (
 type ShodanClient struct {
 	client *goshodan.Client
 	tier   string // "free" or "paid"
-	mu     sync.RWMutex
 }
 
 type SearchResult struct {
@@ -56,14 +54,10 @@ func NewClient(apiKey, tier string) *ShodanClient {
 }
 
 func (c *ShodanClient) SetBaseURL(baseURL string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.client.BaseURL = baseURL
 }
 
 func (c *ShodanClient) SetExploitBaseURL(baseURL string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.client.ExploitBaseURL = baseURL
 }
 
@@ -242,6 +236,9 @@ func (c *ShodanClient) DeleteAlert(ctx context.Context, id string) error {
 }
 
 func (c *ShodanClient) CVELookup(ctx context.Context, cve string) (*CVELookupResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+
 	cve = strings.ToUpper(strings.TrimSpace(cve))
 	if cve == "" {
 		return nil, fmt.Errorf("invalid CVE")
@@ -412,9 +409,11 @@ func normalizeTier(tier string) string {
 }
 
 func (c *ShodanClient) currentTier() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
 	return c.tier
+}
+
+func (c *ShodanClient) DefaultTier() string {
+	return c.currentTier()
 }
 
 func mapAlert(in *goshodan.Alert) *Alert {

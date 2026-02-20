@@ -53,9 +53,12 @@ go build -o shogunhound ./cmd/server && sudo mv shogunhound /usr/local/bin/
 
 # 2. Configure
 export SHODAN_API_KEY="your_key_here"  # add to ~/.bashrc to persist
+export SHODAN_TIER="free"              # optional; use "paid" for faster pacing defaults
 
 # 3. Add to Claude Code
-claude mcp add --transport stdio --env SHODAN_API_KEY="${SHODAN_API_KEY}" \
+claude mcp add --transport stdio \
+  --env SHODAN_API_KEY="${SHODAN_API_KEY}" \
+  --env SHODAN_TIER="${SHODAN_TIER}" \
   shogunhound -- /usr/local/bin/shogunhound
 
 # 4. Query
@@ -71,6 +74,7 @@ claude mcp add --transport stdio --env SHODAN_API_KEY="${SHODAN_API_KEY}" \
 - [Use Cases](#use-cases)
 - [Workflow Examples](#workflow-examples)
 - [Versioning and Support Policy](#versioning-and-support-policy)
+- [Compatibility](#compatibility)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
   - [Build from Source](#build-from-source)
@@ -81,6 +85,7 @@ claude mcp add --transport stdio --env SHODAN_API_KEY="${SHODAN_API_KEY}" \
   - [MCP Server — Claude Code](#mcp-server--claude-code)
   - [MCP Server — Docker](#mcp-server--docker)
 - [Tool Reference](#tool-reference)
+- [Tier and Plan Behavior](#tier-and-plan-behavior)
 - [Output Formats](#output-formats)
 - [IP Validation](#ip-validation)
 - [Caching](#caching)
@@ -180,6 +185,22 @@ Support policy:
 
 ---
 
+## Compatibility
+
+Validated environments:
+
+- **Go toolchain:** 1.25+
+- **Runtime OS (native binary):** Linux (Ubuntu 22.04+ / Debian 12+ recommended)
+- **MCP clients tested:** Cursor (Remote SSH MCP), Claude Code (stdio MCP)
+- **Container runtime:** Docker / Docker Compose with GHCR image support
+
+Release artifact policy:
+
+- GitHub Release binaries are published for `linux/amd64` and `linux/arm64`.
+- Container images are published to GHCR for tagged releases (`vX.Y.Z`) and `latest`.
+
+---
+
 ## Prerequisites
 
 - Linux (Ubuntu 22.04+ or Debian 12+ recommended) — **Linux only; macOS and Windows are not supported**
@@ -220,7 +241,7 @@ docker pull ghcr.io/nethoundsh/shogunhound:latest
 
 Available tags:
 - `latest` — most recent release
-- `v0.1.0`, `v0.2.0`, etc. — specific releases
+- `v0.1.0`, `v0.1.1`, `v0.1.2`, etc. — specific releases
 
 **Verify the image starts cleanly:**
 
@@ -517,6 +538,25 @@ Then in the MCP config, replace the `docker run ...` args with `["compose", "run
 
 ---
 
+## Tier and Plan Behavior
+
+Use this as the quick decision matrix when selecting tools:
+
+| Tool | Free Tier Behavior | Paid/Plan Behavior | Typical Failure Message |
+| ---- | ------------------ | ------------------ | ----------------------- |
+| `shodan_count` | Works on common queries | Works; better throughput under paid pacing | `Shodan rate limit exceeded; wait 60 seconds and retry` |
+| `shodan_ip_query` | Works | Works with faster pacing when `tier=paid` | `Shodan authentication failed; check your API key` |
+| `shodan_search` | May be limited depending on Shodan plan/query | Intended primary mode for filtered searches | `Shodan authentication failed; check your API key` |
+| `shodan_dns_resolve` / `shodan_dns_reverse` | Works for indexed DNS data | Same behavior; higher request budgets may apply by plan | `Shodan rate limit exceeded; wait 60 seconds and retry` |
+| `shodan_ip_query_bulk` | Works; best for multi-IP triage | Works with faster pacing using `tier=paid` | `Shodan rate limit exceeded; wait 60 seconds and retry` |
+| `shodan_cve_lookup` | Works with plan-dependent dataset coverage | Works; same behavior with improved throughput characteristics by plan | `Shodan query timed out; try again` |
+| `shodan_report` | Works; markdown/json only | Works; uses server default tier pacing | `invalid parameter value: format must be markdown or json` |
+| `shodan_alert_*` | Usually unavailable | Requires Monitor-capable Shodan plan | `Shodan authentication failed; check your API key` or provider plan errors |
+
+If a request is valid but unavailable to your Shodan plan, shogunhound returns a human-readable MCP error and does not crash.
+
+---
+
 **Tool name:** `shodan_ip_query`
 
 **Description (as seen by the LLM):**
@@ -677,8 +717,8 @@ Then in the MCP config, replace the `docker run ...` args with `["compose", "run
  SHODAN SEARCH — 24381 total results
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
- 5.9.243.12    Hetzner Online GmbH    Germany    ports: 22
- 78.46.120.44  Hetzner Online GmbH    Germany    ports: 22, 80, 443
+ 5.9.243.12       Hetzner Online GmbH            Germany           ports: 22
+ 78.46.120.44     Hetzner Online GmbH            Germany           ports: 22, 80, 443
 ```
 
 **Parameters:**
@@ -819,6 +859,12 @@ github.com -> 140.82.121.4
 **Description (as seen by the LLM):**
 
 > Bulk Shodan host queries for comma/newline-separated public IPs.
+>
+> Use for rapid triage across multiple addresses when you need quick status, port exposure, and CVE counts in one pass.
+>
+> Format guidance: use format=markdown for analyst-facing summaries and format=json when chaining outputs into other tools.
+>
+> For deep host-level analysis after triage, follow up with shodan_ip_query on high-risk IPs.
 
 **Ask the agent:**
 
@@ -1145,6 +1191,7 @@ Alert deleted
 | -------------------------------- | --------------------------------------------------------------------------- |
 | Missing or empty IP list         | `missing required parameter: ips` or `ips must contain at least one entry`  |
 | Too many IPs                     | `ips must not exceed 100 entries`                                           |
+| Invalid format                  | `invalid parameter value: format must be markdown or json`                  |
 | Invalid or private IP (per-host) | Appears inline in the Host Details section; does not abort the whole report |
 
 
@@ -1217,6 +1264,14 @@ Structured output suitable for chaining with other tools and downstream LLM proc
 }
 ```
 
+### Stable JSON Contract
+
+For machine consumers, treat JSON mode as the contract surface:
+
+- **Stable intent:** top-level host intelligence fields (`IP`, `Ports`, `Services`, `Vulnerabilities`, location/attribution fields).
+- **Potentially variable:** presentation-oriented text in `pretty`/`markdown` formats and section ordering in human-readable outputs.
+- **Forward compatibility:** new JSON fields may be added in future releases; downstream parsers should ignore unknown fields.
+
 ### Markdown
 
 Markdown output is designed for direct rendering in chat surfaces and reports.
@@ -1281,7 +1336,7 @@ The cache is loaded into memory at startup. Expired entries are discarded during
 
 ## Audit Logging
 
-Every query — cache hit or miss — produces a structured JSON log entry:
+Single-IP queries (`shodan_ip_query`) log one entry per request. Batch tools (`shodan_ip_query_bulk`, `shodan_report`) emit one summary log entry per batch:
 
 ```json
 {
@@ -1303,6 +1358,23 @@ Every query — cache hit or miss — produces a structured JSON log entry:
 
 The log is intentionally not anonymized. In an investigation context, knowing exactly what was queried and when is the point of an audit log.
 The log is in JSON lines format (one JSON object per line, no surrounding array). Standard `jq` works directly on the file.
+
+### Log Rotation (Recommended)
+
+For long-running deployments, rotate logs to avoid unbounded growth:
+
+```conf
+/home/your-user/shodan_queries.log {
+  weekly
+  rotate 8
+  compress
+  missingok
+  notifempty
+  create 0600 your-user your-user
+}
+```
+
+Install this as a `logrotate` rule adapted to your username and host policy.
 
 **Quick log analysis:**
 
@@ -1457,7 +1529,7 @@ shogunhound/
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml               # Test, vet, govulncheck on push/PR
-│       └── release.yml          # Multi-platform build + GHCR Docker push on tag
+│       └── release.yml          # Linux release binaries + GHCR Docker push on tag
 ├── cmd/
 │   └── server/
 │       └── main.go              # Entry point: MCP stdio server startup

@@ -5,6 +5,31 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- `formatTagsWithContext` now annotates `cloud` tags with provider-context guidance (was falling through to raw tag)
+- `FormatSearchResult(nil, "json")` now returns `{}` instead of empty string
+- `formatSearchResultPretty` uses fixed-width column padding for consistent alignment
+- `dateWithAge` tightened "recent" threshold to 14 days; month rounding uses `math.Round` for accuracy
+- `initComponents` refactored to accept a `runtimeConfig` struct, eliminating duplicated env-var parsing
+- `ipBulkTool` MCP description expanded with format guidance and follow-up workflow hints
+
+## [0.1.2] - 2026-02-20
+
+### Changed
+
+- Added `--help` support and startup self-check diagnostics in the MCP server binary
+- Expanded README with compatibility, tier behavior, JSON contract, and log rotation guidance
+- Clarified release workflow/docs to match Linux release artifacts and GHCR publishing behavior
+
+### Fixed
+
+- Added summary audit logging for bulk/report operations and success logging for alert operations
+- `shodan_report` now uses the server default tier instead of hardcoding `free`
+- `shodan_report` now validates `format` (`markdown` or `json`) and returns a clear error for invalid values
+- Added test and vet gates to the release workflow before artifact publishing
+- Added outer timeout guard for CVE lookup to cap end-to-end request latency
+
 ## [0.1.1] - 2026-02-20
 
 ### Fixed

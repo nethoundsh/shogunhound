@@ -15,6 +15,13 @@ import (
 
 var version = "vdev"
 
+type runtimeConfig struct {
+	cachePath string
+	logPath   string
+	apiKey    string
+	tier      string
+}
+
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -27,24 +34,17 @@ func main() {
 		}
 	}
 
-	if os.Getenv("SHODAN_API_KEY") == "" {
+	cfg := loadRuntimeConfig()
+	if cfg.apiKey == "" {
 		fmt.Fprintln(os.Stderr, "SHODAN_API_KEY not set; cannot query Shodan")
 		os.Exit(1)
 	}
-
-	cachePath := envOrDefault("CACHE_PATH", "~/.shodan_cache.json")
-	logPath := envOrDefault("LOG_PATH", "~/shodan_queries.log")
-	tier := "free"
-	if strings.EqualFold(os.Getenv("SHODAN_TIER"), "paid") {
-		tier = "paid"
-	}
-	fmt.Fprintf(os.Stderr, "shogunhound %s | cache: %s | log: %s | tier: %s\n", version, cachePath, logPath, tier)
-
-	_, _, h, err := initComponents()
+	_, _, h, err := initComponents(cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	fmt.Fprintf(os.Stderr, "shogunhound %s | cache: %s | log: %s | tier: %s\n", version, cfg.cachePath, cfg.logPath, cfg.tier)
 	defer func() {
 		if err := h.Close(); err != nil {
 			fmt.Fprintf(os.Stderr, "failed to close handler log file: %v\n", err)
@@ -158,22 +158,27 @@ Environment:
 `, version)
 }
 
-func initComponents() (*cache.Cache, *shodan.ShodanClient, *handler.ToolHandler, error) {
-	cachePath := envOrDefault("CACHE_PATH", "~/.shodan_cache.json")
-	logPath := envOrDefault("LOG_PATH", "~/shodan_queries.log")
-	apiKey := os.Getenv("SHODAN_API_KEY")
+func loadRuntimeConfig() runtimeConfig {
 	tier := "free"
 	if strings.EqualFold(os.Getenv("SHODAN_TIER"), "paid") {
 		tier = "paid"
 	}
+	return runtimeConfig{
+		cachePath: envOrDefault("CACHE_PATH", "~/.shodan_cache.json"),
+		logPath:   envOrDefault("LOG_PATH", "~/shodan_queries.log"),
+		apiKey:    os.Getenv("SHODAN_API_KEY"),
+		tier:      tier,
+	}
+}
 
-	c, err := cache.New(cachePath)
+func initComponents(cfg runtimeConfig) (*cache.Cache, *shodan.ShodanClient, *handler.ToolHandler, error) {
+	c, err := cache.New(cfg.cachePath)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	client := shodan.NewClient(apiKey, tier)
-	h, err := handler.New(c, client, logPath)
+	client := shodan.NewClient(cfg.apiKey, cfg.tier)
+	h, err := handler.New(c, client, cfg.logPath)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -315,7 +320,10 @@ func cveLookupTool() mcp.Tool {
 
 func ipBulkTool() mcp.Tool {
 	return mcp.NewTool("shodan_ip_query_bulk",
-		mcp.WithDescription("Bulk Shodan host queries for comma/newline-separated public IPs."),
+		mcp.WithDescription("Bulk Shodan host queries for comma/newline-separated public IPs.\n\n"+
+			"Use for rapid triage across multiple addresses when you need quick status, port exposure, and CVE counts in one pass.\n\n"+
+			"Format guidance: use format=markdown for analyst-facing summaries and format=json when chaining outputs into other tools.\n\n"+
+			"For deep host-level analysis after triage, follow up with shodan_ip_query on high-risk IPs."),
 		mcp.WithString("ips",
 			mcp.Required(),
 			mcp.Description("Comma- or newline-separated public IPv4/IPv6 addresses")),

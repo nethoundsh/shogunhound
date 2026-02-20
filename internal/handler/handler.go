@@ -288,6 +288,7 @@ func (h *ToolHandler) HandleShodanAlertCreate(
 		h.logger.Error("alert_create_failed", "name", name, "targets", targets, "error", err.Error())
 		return mcp.NewToolResultError(humanizeSearchError(err)), nil
 	}
+	h.logger.Info("alert_create", "name", name, "targets", targets, "alert_id", alert.ID, "success", true, "error", "")
 
 	return mcp.NewToolResultText(fmt.Sprintf("Created alert %s (%s) for %d target(s)", alert.Name, alert.ID, len(alert.IPs))), nil
 }
@@ -306,6 +307,7 @@ func (h *ToolHandler) HandleShodanAlertList(
 		h.logger.Error("alert_list_failed", "error", err.Error())
 		return mcp.NewToolResultError(humanizeSearchError(err)), nil
 	}
+	h.logger.Info("alert_list", "format", format, "count", len(alerts), "success", true, "error", "")
 
 	switch format {
 	case "json":
@@ -359,6 +361,7 @@ func (h *ToolHandler) HandleShodanAlertDelete(
 		h.logger.Error("alert_delete_failed", "id", id, "error", err.Error())
 		return mcp.NewToolResultError(humanizeSearchError(err)), nil
 	}
+	h.logger.Info("alert_delete", "id", strings.TrimSpace(id), "success", true, "error", "")
 	return mcp.NewToolResultText("Alert deleted"), nil
 }
 
@@ -463,7 +466,10 @@ func (h *ToolHandler) HandleShodanIPQueryBulk(
 		maxWorkers = 10
 	}
 
+	start := time.Now()
 	items := h.bulkLookup(ctx, ips, history, minify, clearCache, tier, maxWorkers)
+	duration := time.Since(start)
+	h.logBatchQuery("bulk", format, len(ips), summarizeBulk(items), duration, true, "")
 	return mcp.NewToolResultText(formatBulkOutput(items, format)), nil
 }
 
@@ -487,8 +493,14 @@ func (h *ToolHandler) HandleShodanReport(
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	if format != "markdown" && format != "json" {
+		return mcp.NewToolResultError("invalid parameter value: format must be markdown or json"), nil
+	}
 
-	items := h.bulkLookup(ctx, ips, false, false, false, "free", 4)
+	start := time.Now()
+	items := h.bulkLookup(ctx, ips, false, false, false, h.shodan.DefaultTier(), 4)
+	duration := time.Since(start)
+	h.logBatchQuery("report", format, len(ips), summarizeBulk(items), duration, true, "")
 	return mcp.NewToolResultText(formatReportOutput(items, format)), nil
 }
 
@@ -553,6 +565,30 @@ func (h *ToolHandler) querySingleIP(ctx context.Context, ip string, history, min
 	}
 	h.cache.Set(ip, result)
 	return &bulkResultItem{IP: ip, Result: result}
+}
+
+type bulkSummary struct {
+	successes int
+	cacheHits int
+	errors    int
+}
+
+func summarizeBulk(items []*bulkResultItem) bulkSummary {
+	summary := bulkSummary{}
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		if item.Error != "" {
+			summary.errors++
+			continue
+		}
+		summary.successes++
+		if item.Cached {
+			summary.cacheHits++
+		}
+	}
+	return summary
 }
 
 func splitCSVOrLines(s string) []string {
@@ -746,6 +782,24 @@ func (h *ToolHandler) logQuery(ip, format string, cacheHit bool, duration time.D
 		"ip", ip,
 		"format", format,
 		"cache_hit", cacheHit,
+		"duration_ms", duration.Milliseconds(),
+		"success", success,
+		"error", errMsg,
+	)
+}
+
+func (h *ToolHandler) logBatchQuery(op, format string, inputCount int, summary bulkSummary, duration time.Duration, success bool, errMsg string) {
+	if h.logger == nil {
+		return
+	}
+
+	h.logger.Info("batch_query",
+		"operation", op,
+		"format", format,
+		"input_count", inputCount,
+		"successes", summary.successes,
+		"cache_hits", summary.cacheHits,
+		"errors", summary.errors,
 		"duration_ms", duration.Milliseconds(),
 		"success", success,
 		"error", errMsg,

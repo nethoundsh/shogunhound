@@ -3,6 +3,7 @@ package formatter
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -87,6 +88,9 @@ func Format(result *shodan.ShodanHostResult, format string) string {
 
 func FormatSearchResult(result *shodan.SearchResult, format string) string {
 	if result == nil {
+		if format == "json" {
+			return "{}"
+		}
 		return ""
 	}
 
@@ -163,6 +167,8 @@ func formatTagsWithContext(tags []string) string {
 			annotated = append(annotated, "tor (Tor exit/relay node)")
 		case "scanner":
 			annotated = append(annotated, "scanner (known scanning infrastructure)")
+		case "cloud":
+			annotated = append(annotated, "cloud (confirm provider context via organization/ASN)")
 		default:
 			annotated = append(annotated, tag)
 		}
@@ -234,7 +240,7 @@ func formatSearchResultPretty(result *shodan.SearchResult) string {
 		if match == nil {
 			continue
 		}
-		fmt.Fprintf(&b, " %s  %s  %s  ports: %s\n",
+		fmt.Fprintf(&b, " %-16s  %-30s  %-16s  ports: %s\n",
 			valueOr(match.IP, "(unknown)"),
 			valueOr(match.Organization, "(unknown)"),
 			valueOr(match.Country, "(unknown)"),
@@ -285,12 +291,15 @@ func dateWithAge(ts time.Time) string {
 
 	days := int(time.Since(ts).Hours() / 24)
 	switch {
-	case days < 30:
+	case days < 14:
 		return ts.Format("2006-01-02") + " (recent)"
 	case days < 90:
 		return fmt.Sprintf("%s (%d days ago)", ts.Format("2006-01-02"), days)
 	default:
-		months := days / 30
+		months := int(math.Round(float64(days) / 30.44))
+		if months < 1 {
+			months = 1
+		}
 		return fmt.Sprintf("%s (%d months ago - data may be stale)", ts.Format("2006-01-02"), months)
 	}
 }
