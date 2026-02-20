@@ -1352,8 +1352,25 @@ Single-IP queries (`shodan_ip_query`) log one entry per request. Batch tools (`s
 }
 ```
 
+```json
+{
+  "time": "2026-02-20T20:15:39Z",
+  "level": "INFO",
+  "msg": "batch_query",
+  "operation": "bulk",
+  "format": "markdown",
+  "input_count": 8,
+  "successes": 7,
+  "cache_hits": 3,
+  "errors": 1,
+  "duration_ms": 2314,
+  "success": true,
+  "error": ""
+}
+```
+
 - **Location:** `~/shodan_queries.log` (configurable via `LOG_PATH`)
-- **Format:** JSON lines, one record per query
+- **Format:** JSON lines, one record per single query or batch summary event
 - **Permissions:** The log file should be `chmod 600`. See [Security](#security).
 
 The log is intentionally not anonymized. In an investigation context, knowing exactly what was queried and when is the point of an audit log.

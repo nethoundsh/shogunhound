@@ -36,17 +36,17 @@ func Format(result *shodan.ShodanHostResult, format string) string {
 	fmt.Fprintf(&b, "%s\n\n", headerLine)
 
 	fmt.Fprintf(&b, "IDENTITY\n")
-	fmt.Fprintf(&b, " Organization : %s\n", valueOr(result.Organization, "(unknown)"))
-	fmt.Fprintf(&b, " ISP : %s\n", valueOr(result.ISP, "(unknown)"))
-	fmt.Fprintf(&b, " ASN : %s\n", valueOr(result.ASN, "(unknown)"))
-	fmt.Fprintf(&b, " OS : %s\n", valueOr(result.OS, "(unknown)"))
-	fmt.Fprintf(&b, " Hostnames : %s\n", joinOr(result.Hostnames, "(none)"))
-	fmt.Fprintf(&b, " Tags : %s\n", formatTagsWithContext(result.Tags))
-	fmt.Fprintf(&b, " Last Seen : %s\n\n", dateWithAge(result.LastSeen))
+	fmt.Fprintf(&b, " %-12s : %s\n", "Organization", valueOr(result.Organization, "(unknown)"))
+	fmt.Fprintf(&b, " %-12s : %s\n", "ISP", valueOr(result.ISP, "(unknown)"))
+	fmt.Fprintf(&b, " %-12s : %s\n", "ASN", valueOr(result.ASN, "(unknown)"))
+	fmt.Fprintf(&b, " %-12s : %s\n", "OS", valueOr(result.OS, "(unknown)"))
+	fmt.Fprintf(&b, " %-12s : %s\n", "Hostnames", joinOr(result.Hostnames, "(none)"))
+	fmt.Fprintf(&b, " %-12s : %s\n", "Tags", formatTagsWithContext(result.Tags))
+	fmt.Fprintf(&b, " %-12s : %s\n\n", "Last Seen", dateWithAge(result.LastSeen))
 
 	fmt.Fprintf(&b, "LOCATION\n")
-	fmt.Fprintf(&b, " Country : %s\n", valueOr(result.Country, "(unknown)"))
-	fmt.Fprintf(&b, " City : %s\n\n", valueOr(result.City, "(unknown)"))
+	fmt.Fprintf(&b, " %-7s : %s\n", "Country", valueOr(result.Country, "(unknown)"))
+	fmt.Fprintf(&b, " %-7s : %s\n\n", "City", valueOr(result.City, "(unknown)"))
 
 	if len(result.Vulnerabilities) > 0 {
 		fmt.Fprintf(&b, "VULNERABILITIES\n")
@@ -64,7 +64,8 @@ func Format(result *shodan.ShodanHostResult, format string) string {
 		fmt.Fprintf(&b, " (none)\n")
 	} else {
 		for _, service := range result.Services {
-			fmt.Fprintf(&b, " %d/%s %s", service.Port, valueOr(service.Transport, "tcp"), strings.TrimSpace(service.Module))
+			portProto := fmt.Sprintf("%d/%s", service.Port, valueOr(service.Transport, "tcp"))
+			fmt.Fprintf(&b, " %-9s %-8s", portProto, strings.TrimSpace(service.Module))
 			if productVersion := strings.TrimSpace(service.Product + " " + service.Version); productVersion != "" {
 				fmt.Fprintf(&b, " — %s", productVersion)
 			}
@@ -296,10 +297,7 @@ func dateWithAge(ts time.Time) string {
 	case days < 90:
 		return fmt.Sprintf("%s (%d days ago)", ts.Format("2006-01-02"), days)
 	default:
-		months := int(math.Round(float64(days) / 30.44))
-		if months < 1 {
-			months = 1
-		}
+		months := max(1, int(math.Round(float64(days)/30.44)))
 		return fmt.Sprintf("%s (%d months ago - data may be stale)", ts.Format("2006-01-02"), months)
 	}
 }
