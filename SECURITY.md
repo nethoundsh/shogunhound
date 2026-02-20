@@ -8,7 +8,6 @@ Only the latest published release is supported with security fixes.
 
 Please report vulnerabilities privately using one of the following channels:
 
-- Email: `security@nethound.sh` (to be implemented)
 - GitHub: private security advisory for this repository
 
 Expected response SLA:

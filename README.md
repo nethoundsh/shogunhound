@@ -3,9 +3,9 @@
 
 **Shodan host intelligence as an MCP tool.**
 
-shogunhound is an [MCP](https://modelcontextprotocol.io) server that gives LLM agents direct access to [Shodan's](https://shodan.io) host intelligence API. Query open ports, running services, banner data, geolocation, ASN, and known CVEs from inside a conversation — without switching to a browser or separate terminal.
+shogunhound is an [MCP](https://modelcontextprotocol.io) server that gives LLM agents direct access to [Shodan's](https://shodan.io) host intelligence API. Query open ports, running services, banner data, geolocation, ASN, and known CVEs from inside a conversation without switching to a browser or separate terminal.
 
-Built for security analysts working in ransomware recovery, OSINT research, and incident response. Part of the [nethound.sh](https://nethound.sh) open-source toolchain.
+Built for security analysts working in ransomware recovery, OSINT research, and incident response. It is part of the [nethound.sh](https://nethound.sh) open-source toolchain.
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -103,7 +103,7 @@ claude mcp add --transport stdio \
 
 ## How It Works
 
-shogunhound runs as a subprocess on your VPS. An MCP client — Cursor, a terminal agent, or any MCP-compatible editor — communicates with it over stdin/stdout. When the LLM needs Shodan intelligence, it can call a focused tool (`shodan_ip_query`, `shodan_search`, `shodan_dns_*`, `shodan_cve_lookup`, `shodan_ip_query_bulk`, `shodan_report`, and Shodan Monitor alert tools). Results come back as formatted text or raw JSON, ready for synthesis into investigation notes.
+shogunhound runs as a subprocess on your VPS. An MCP client (Cursor, a terminal agent, or any MCP-compatible editor) communicates with it over stdin/stdout. When the LLM needs Shodan intelligence, it calls focused tools (`shodan_ip_query`, `shodan_search`, `shodan_dns_*`, `shodan_cve_lookup`, `shodan_ip_query_bulk`, `shodan_report`, and Shodan Monitor alert tools). Results come back as formatted text or raw JSON, ready to drop into investigation notes.
 
 ```
 Cursor (Remote SSH)
@@ -400,11 +400,11 @@ claude mcp list
 
 Or inside a Claude Code session, run `/mcp` and confirm `shogunhound` appears as connected.
 
-Using the investigation prompts:
+Example slash-commands:
 
 ```text
-/mcp__shogunhound__investigate_ip ip=8.8.8.8
-/mcp__shogunhound__recon query="org:\"Acme Corp\""
+/mcp__shogunhound__shodan_ip_query ip=8.8.8.8 format=pretty
+/mcp__shogunhound__shodan_search query="org:\"Acme Corp\"" format=markdown
 ```
 
 ---
@@ -1547,7 +1547,9 @@ shogunhound/
 ├── .github/
 │   └── workflows/
 │       ├── ci.yml               # Test, vet, govulncheck on push/PR
-│       └── release.yml          # Linux release binaries + GHCR Docker push on tag
+│       └── release.yml          # Release gates + Linux binaries + GHCR Docker push on tag
+├── .cursor/
+│   └── AGENTS.md                # Internal implementation guidance for dev agents
 ├── cmd/
 │   └── server/
 │       └── main.go              # Entry point: MCP stdio server startup
@@ -1566,17 +1568,22 @@ shogunhound/
 │   │   ├── formatter.go         # Pretty, markdown, and JSON output formatters
 │   │   └── formatter_test.go
 │   └── handler/
-│       ├── handler.go           # MCP tool handlers, audit logger, error humanizer
+│       ├── handler.go           # ToolHandler type + constructor/lifecycle
+│       ├── handler_ip.go        # IP query, count, search, CVE handlers
+│       ├── handler_dns.go       # DNS resolve/reverse handlers
+│       ├── handler_alerts.go    # Alert create/list/delete handlers
+│       ├── handler_bulk.go      # Bulk query/report handlers + aggregation
+│       ├── handler_helpers.go   # Shared parsing, logging, and error helpers
 │       └── handler_test.go
 ├── deploy/
 │   └── shogunhound.service      # systemd unit (for future HTTP/SSE deployment)
 ├── Dockerfile                   # Multi-stage distroless container build
 ├── Makefile                     # Local build/test/lint/release-check helpers
 ├── CHANGELOG.md                 # Release history and notable changes
+├── CONTRIBUTING.md              # Contributor setup and contribution workflow
 ├── SECURITY.md                  # Vulnerability reporting and disclosure policy
 ├── docs/
-│   ├── DESIGN.md                # Full technical design document
-│   └── AGENTS.md                # Implementation instructions used during development
+│   └── DESIGN.md                # Full technical design document
 ├── go.mod
 └── go.sum
 ```
@@ -1587,13 +1594,15 @@ shogunhound/
 
 Contributions are welcome. Please open an issue before submitting a pull request for non-trivial changes.
 
+For contributor setup and local quality checks, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 **Areas actively looking for contributions:**
 
 - Additional handler integration tests for remaining tool paths (`shodan_alert_`*, `shodan_cve_lookup`, `shodan_report`)
 - IPv6 end-to-end testing against the live Shodan API
 - Performance benchmarks for bulk query throughput under free vs paid tier rate limits
 
-See `docs/DESIGN.md` for full architectural context and `docs/AGENTS.md` for component-level implementation notes.
+See `docs/DESIGN.md` for full architectural context. Internal developer-agent guidance lives in `.cursor/AGENTS.md`.
 
 ---
 
